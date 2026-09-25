@@ -101,3 +101,84 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 dialog .hint, dialog .form-err { margin: 0; font-size: 12px; }
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+/* shared: ask dialog, toast */
+dialog.ask { width: 420px; }
+dialog.ask .msg { margin: 0; color: var(--text); }
+button.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.toast { position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: 480px; padding: 10px 14px;
+  border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .4); }
+.toast.ok { border-left: 3px solid var(--accent); }
+.toast.err { border-left: 3px solid var(--danger); }
+textarea { font: 12.5px/1.5 "JetBrains Mono", "Fira Code", monospace; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px; resize: vertical; }
+textarea:focus { outline: none; border-color: var(--accent); }
+
+/* kubernetes */
+.k8s { flex-direction: row; }
+.k8s.dragover::after { content: "Отпустите, чтобы импортировать kubeconfig"; position: absolute; inset: 12px; display: grid;
+  place-items: center; border: 2px dashed var(--accent); border-radius: 12px; background: rgba(15, 17, 23, .85);
+  font-size: 16px; color: var(--accent); pointer-events: none; }
+.k8s-side { width: 240px; flex: none; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 8px 0; }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; font-weight: 600; }
+.side-head.small { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-top: 12px; }
+.pad { padding: 0 12px; }
+.ctx-group { margin-bottom: 6px; }
+.ctx-file { display: flex; align-items: center; gap: 6px; padding: 4px 12px; color: var(--muted); font-size: 12px; }
+.ctx-file span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-file .del { margin-left: auto; padding: 0 4px; }
+.badge { font-size: 10px; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; }
+.ctx-item, .kind-item { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0;
+  border-radius: 0; background: transparent; padding: 5px 12px 5px 18px; text-align: left; }
+.ctx-item:hover, .kind-item:hover { background: var(--panel-2); }
+.ctx-item.active, .kind-item.active { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); color: var(--accent); }
+.ctx-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-server { font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind-item { padding-top: 3px; padding-bottom: 3px; }
+
+.k8s-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.k8s-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  background: var(--panel); }
+.ctx-title { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-select { max-width: 220px; }
+.filter { width: 220px; }
+.auto { display: flex; align-items: center; gap: 4px; }
+.k8s.loading [data-act=refresh] { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.k8s-err { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: pre-wrap; }
+
+.table-wrap { flex: 1; min-height: 0; overflow: auto; }
+table.res { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.res th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted);
+  padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; }
+table.res th.asc::after { content: " ▲"; font-size: 9px; }
+table.res th.desc::after { content: " ▼"; font-size: 9px; }
+table.res td { padding: 4px 10px; border-bottom: 1px solid #1a1f2d; white-space: nowrap; max-width: 420px;
+  overflow: hidden; text-overflow: ellipsis; }
+table.res td.wrap { white-space: normal; min-width: 300px; }
+table.res tbody tr { cursor: pointer; }
+table.res tbody tr:hover { background: var(--panel); }
+table.res tbody tr.sel { background: var(--panel-2); }
+td.ok { color: #98d982; }
+td.warn { color: #e6c07b; }
+td.bad { color: var(--danger); }
+td.muted { color: var(--muted); }
+
+.drawer { height: 46%; min-height: 200px; flex: none; display: flex; flex-direction: column;
+  border-top: 2px solid var(--border); background: var(--panel); }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.obj-title { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-tabs, .drawer-actions { display: flex; gap: 4px; }
+.dtab { background: transparent; border-color: transparent; color: var(--muted); }
+.dtab.active { color: var(--accent); border-color: var(--border); background: var(--panel-2); }
+.drawer-body { flex: 1; min-height: 0; display: flex; }
+.yaml-pane, .logs-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+textarea.yaml { flex: 1; border: 0; border-radius: 0; resize: none; background: var(--bg); tab-size: 2; }
+.yaml-actions, .logs-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--border); }
+.logs-bar { border-top: 0; border-bottom: 1px solid var(--border); }
+.logs-bar label { display: flex; align-items: center; gap: 4px; }
+.logs-term { flex: 1; min-height: 0; padding: 4px 0 0 8px; background: var(--bg); }
+
+.import-dialog { width: 620px; }

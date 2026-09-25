@@ -27,6 +27,7 @@ pub struct SpawnRequest {
     program: Option<String>,
     args: Option<Vec<String>>,
     cwd: Option<String>,
+    env: Option<HashMap<String, String>>,
     cols: u16,
     rows: u16,
 }
@@ -53,6 +54,9 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OpsDeck");
+    for (k, v) in req.env.unwrap_or_default() {
+        cmd.env(k, v);
+    }
 
     let child = pair.slave.spawn_command(cmd).map_err(err)?;
     drop(pair.slave);

@@ -16,6 +16,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
 base64 = "0.22"
-tokio = { version = "1", features = ["process", "io-util", "sync", "macros"] }
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "time"] }
+kube = { version = "4.2", default-features = false, features = ["client", "rustls-tls", "ring", "http-proxy"] }
+k8s-openapi = { version = "0.28", features = ["latest"] }
+serde_yaml_ng = "0.10"
+futures = "0.3"
+chrono = "0.4"
 dirs = "6"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }

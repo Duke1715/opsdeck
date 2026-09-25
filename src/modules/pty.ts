@@ -5,6 +5,8 @@ import { FitAddon } from "@xterm/addon-fit";
 
 let seq = 0;
 
+export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
+
 const theme = {
   background: "#0f1117", foreground: "#d6deeb", cursor: "#7fdbca", selectionBackground: "#2b3a55",
   black: "#1d2130", red: "#ef5f6b", green: "#98d982", yellow: "#e6c07b", blue: "#61afef",
@@ -30,7 +32,7 @@ export class PtyTerminal {
   private ro: ResizeObserver;
   onExit?: () => void;
 
-  constructor(readonly host: HTMLElement, opts: { program?: string; args?: string[]; cwd?: string } = {}) {
+  constructor(readonly host: HTMLElement, opts: SpawnOpts = {}) {
     this.term.loadAddon(this.fit);
     this.term.open(host);
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
@@ -39,7 +41,7 @@ export class PtyTerminal {
     this.start(opts);
   }
 
-  private async start(opts: { program?: string; args?: string[]; cwd?: string }) {
+  private async start(opts: SpawnOpts) {
     this.unlisten.push(await listen<string>(`pty-data-${this.id}`, (e) => this.term.write(b64(e.payload))));
     this.unlisten.push(await listen(`pty-exit-${this.id}`, () => {
       this.term.write("\r\n\x1b[2m[процесс завершён]\x1b[0m\r\n");

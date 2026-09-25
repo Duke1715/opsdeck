@@ -1,4 +1,7 @@
-import { PtyTerminal } from "./pty";
+import { PtyTerminal, SpawnOpts } from "./pty";
+
+/** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
+export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
 type Tab = { pty: PtyTerminal; btn: HTMLElement; host: HTMLElement };
 
@@ -73,7 +76,7 @@ export function mountTerminal(root: HTMLElement) {
     else if (active === t) activate(tabs[Math.max(0, i - 1)]);
   }
 
-  function newTab() {
+  function newTab(opts: OpenTerminalDetail = {}) {
     const host = document.createElement("div");
     host.className = "term-host";
     hostsEl.appendChild(host);
@@ -83,14 +86,15 @@ export function mountTerminal(root: HTMLElement) {
     btn.innerHTML = `<span class="label"></span><span class="x" title="Закрыть">×</span>`;
     tabsEl.appendChild(btn);
 
-    const pty = new PtyTerminal(host);
+    const { title, keepOpen, ...spawn } = opts;
+    const pty = new PtyTerminal(host, spawn);
     const t: Tab = { pty, btn, host };
     const label = btn.querySelector<HTMLElement>(".label")!;
-    label.textContent = `shell ${tabs.length + 1}`;
+    label.textContent = title ?? `shell ${tabs.length + 1}`;
     pty.term.onTitleChange((title) => (label.textContent = title || label.textContent));
     btn.onclick = () => activate(t);
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); close(t); };
-    pty.onExit = () => close(t);
+    if (!keepOpen) pty.onExit = () => close(t);
 
     tabs.push(t);
     activate(t);
@@ -117,10 +121,14 @@ export function mountTerminal(root: HTMLElement) {
 
   function sendSelection() {
     const sel = active?.pty.term.getSelection().trim();
-    if (!sel) return;
+    if (sel) sendToAi(sel);
+  }
+
+  function sendToAi(text: string) {
+    const fresh = !ai;
     toggleAi(true);
     // bracketed paste so multi-line output lands as one message instead of being submitted line by line
-    setTimeout(() => ai?.send(`\x1b[200~${sel}\x1b[201~`), ai ? 0 : 1500);
+    setTimeout(() => ai?.send(`\x1b[200~${text}\x1b[201~`), fresh ? 1500 : 0);
     ai?.term.focus();
   }
 
@@ -141,7 +149,9 @@ export function mountTerminal(root: HTMLElement) {
   aiPanel.style.width = load("opsdeck.ai.width", "520px");
 
   providerSel.onchange = () => { save("opsdeck.ai.provider", providerSel.value); startAi(); };
-  root.querySelector<HTMLElement>("[data-act=new]")!.onclick = newTab;
+  root.querySelector<HTMLElement>("[data-act=new]")!.onclick = () => newTab();
+  window.addEventListener("send-to-ai", (e) => sendToAi((e as CustomEvent<string>).detail));
+  window.addEventListener("open-terminal", (e) => newTab((e as CustomEvent<OpenTerminalDetail>).detail));
   root.querySelector<HTMLElement>("[data-act=ai]")!.onclick = () => toggleAi();
   root.querySelector<HTMLElement>("[data-act=send]")!.onclick = sendSelection;
   root.querySelector<HTMLElement>("[data-act=ai-restart]")!.onclick = startAi;
