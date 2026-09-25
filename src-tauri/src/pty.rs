@@ -42,10 +42,15 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .openpty(PtySize { rows: req.rows, cols: req.cols, pixel_width: 0, pixel_height: 0 })
         .map_err(err)?;
 
+    let plain_shell = req.program.is_none();
     let program = req
         .program
         .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()));
-    let mut cmd = CommandBuilder::new(program);
+    let mut cmd = CommandBuilder::new(&program);
+    if plain_shell {
+        // best effort: without integration the tab still works, just without command blocks
+        let _ = shell_integration(&program, &mut cmd);
+    }
     cmd.args(req.args.unwrap_or_default());
     let cwd = req.cwd.map(Into::into).or_else(dirs::home_dir);
     if let Some(cwd) = cwd {
@@ -54,6 +59,11 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OpsDeck");
+    if let Some(port) = crate::ide::port() {
+        // lets `claude` started in this terminal find OpsDeck's IDE bridge
+        cmd.env("CLAUDE_CODE_SSE_PORT", port.to_string());
+        cmd.env("ENABLE_IDE_INTEGRATION", "true");
+    }
     for (k, v) in req.env.unwrap_or_default() {
         cmd.env(k, v);
     }
@@ -84,6 +94,37 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .lock()
         .unwrap()
         .insert(req.id, Session { master: pair.master, writer, child });
+    Ok(())
+}
+
+const BASH_SI: &str = include_str!("../shell/bash-integration.sh");
+const ZSH_ENV: &str = include_str!("../shell/zshenv");
+const ZSH_RC: &str = include_str!("../shell/zshrc");
+
+/// Hooks OSC 133/7 marks into bash (--rcfile) or zsh (ZDOTDIR) so the UI can build command blocks.
+fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), String> {
+    let dir = crate::store::config_dir()?.join("shell");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    match std::path::Path::new(program).file_name().and_then(|n| n.to_str()) {
+        Some("bash") => {
+            let rc = dir.join("bash-integration.sh");
+            std::fs::write(&rc, BASH_SI).map_err(err)?;
+            cmd.args(["--rcfile".as_ref(), rc.as_os_str(), "-i".as_ref()]);
+        }
+        Some("zsh") => {
+            let zdir = dir.join("zsh");
+            std::fs::create_dir_all(&zdir).map_err(err)?;
+            std::fs::write(zdir.join(".zshenv"), ZSH_ENV).map_err(err)?;
+            std::fs::write(zdir.join(".zshrc"), ZSH_RC).map_err(err)?;
+            if let Ok(orig) = std::env::var("ZDOTDIR") {
+                cmd.env("OPSDECK_ORIG_ZDOTDIR", orig);
+            }
+            cmd.env("OPSDECK_SI_DIR", &zdir);
+            cmd.env("ZDOTDIR", &zdir);
+        }
+        _ => return Ok(()),
+    }
+    cmd.env("OPSDECK_SHELL_INTEGRATION", "1");
     Ok(())
 }
 

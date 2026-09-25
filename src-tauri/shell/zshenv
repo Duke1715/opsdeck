@@ -1,0 +1,6 @@
+# OpsDeck: restore the user's ZDOTDIR and load their .zshenv
+if [[ -n "$OPSDECK_ORIG_ZDOTDIR" ]]; then ZDOTDIR="$OPSDECK_ORIG_ZDOTDIR"; else unset ZDOTDIR; fi
+[[ -f "${ZDOTDIR:-$HOME}/.zshenv" ]] && source "${ZDOTDIR:-$HOME}/.zshenv"
+# zsh reads the remaining startup files from $ZDOTDIR: point it back at us for .zshrc
+__opsdeck_user_zdotdir="${ZDOTDIR:-$HOME}"
+ZDOTDIR="$OPSDECK_SI_DIR"

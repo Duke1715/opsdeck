@@ -1,9 +1,11 @@
 mod connectors;
+mod ide;
 mod k8s;
 mod keepass;
 mod mikrotik;
 mod notes;
 mod settings;
+mod snippets;
 mod store;
 mod pty;
 mod tools;
@@ -15,8 +17,10 @@ pub fn run() {
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
         .manage(keepass::KeepassState::default())
+        .manage(ide::IdeState::default())
         .setup(|app| {
             keepass::spawn_autolock(app.handle().clone());
+            ide::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -66,8 +70,19 @@ pub fn run() {
             notes::note_search,
             notes::note_open_obsidian,
             notes::note_daily,
+            snippets::snippets_list,
+            snippets::snippets_save,
+            ide::ide_selection,
+            ide::ide_editor,
+            ide::ide_at_mention,
+            ide::ide_status,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running OpsDeck");
+        .build(tauri::generate_context!())
+        .expect("error while building OpsDeck")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                ide::cleanup(app);
+            }
+        });
 }
 
