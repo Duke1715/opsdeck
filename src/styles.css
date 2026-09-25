@@ -293,3 +293,17 @@ dialog.mt-dialog { width: 560px; }
 .tree-section > .tree-row { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .tree-sep { height: 1px; background: var(--border); margin: 6px 10px; }
 .note-item.active { background: var(--panel-2); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* k8s: context actions, read-only */
+.ctx-item { position: relative; cursor: pointer; }
+.ctx-acts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; gap: 2px;
+  background: var(--panel-2); border-radius: 4px; }
+.ctx-item:hover .ctx-acts { display: flex; }
+.ctx-acts .icon { padding: 0 4px; font-size: 13px; }
+.ctx-item.ro .ctx-name { color: #e6c07b; }
+.ctx-hidden { margin: 8px 12px; }
+.ctx-hidden summary { cursor: pointer; font-size: 12px; }
+.ctx-hidden-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 2px 8px; }
+.ctx-hidden-row button { padding: 1px 8px; font-size: 12px; }
+.ro-badge { display: none; font-size: 12px; color: #e6c07b; border: 1px solid #e6c07b55; border-radius: 4px; padding: 1px 6px; }
+.k8s.readonly .ro-badge { display: inline; }

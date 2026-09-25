@@ -221,6 +221,41 @@ pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, S
     Ok(path.to_string_lossy().into_owned())
 }
 
+// ---------- per-context preferences ----------
+
+const PREFS_FILE: &str = "k8s.json";
+
+/// Contexts are keyed as "<kubeconfig file>|<context name>".
+#[derive(Serialize, Deserialize, Default)]
+pub struct K8sPrefs {
+    #[serde(default)]
+    hidden: Vec<String>,
+    /// Read-only contexts: apply / delete / scale / restart are refused by the backend.
+    #[serde(default)]
+    readonly: Vec<String>,
+}
+
+fn ctx_key(ctx: &Ctx) -> String {
+    format!("{}|{}", ctx.file, ctx.context)
+}
+
+#[tauri::command]
+pub fn k8s_prefs_get() -> K8sPrefs {
+    crate::store::load_json(PREFS_FILE).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn k8s_prefs_set(prefs: K8sPrefs) -> Result<(), String> {
+    crate::store::save_json(PREFS_FILE, &prefs)
+}
+
+fn ensure_writable(ctx: &Ctx) -> Result<(), String> {
+    if k8s_prefs_get().readonly.contains(&ctx_key(ctx)) {
+        return Err(format!("контекст «{}» в режиме только чтения — снимите 🔒, чтобы менять ресурсы", ctx.context));
+    }
+    Ok(())
+}
+
 // ---------- API access ----------
 
 async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
@@ -331,6 +366,7 @@ pub async fn k8s_apply_yaml(
     namespace: Option<String>,
     yaml: String,
 ) -> Result<(), String> {
+    ensure_writable(&ctx)?;
     let v = clean(serde_yaml_ng::from_str::<Value>(&yaml).map_err(|e| format!("YAML: {e}"))?);
     let name = v["metadata"]["name"].as_str().ok_or("metadata.name missing")?.to_string();
     let ns = v["metadata"]["namespace"].as_str().map(str::to_string).or(namespace);
@@ -348,6 +384,7 @@ pub async fn k8s_delete(
     namespace: Option<String>,
     name: String,
 ) -> Result<(), String> {
+    ensure_writable(&ctx)?;
     let c = client(&state, &ctx).await?;
     timed(api(c, &kind, namespace.as_deref())?.delete(&name, &DeleteParams::default())).await?;
     Ok(())
@@ -362,6 +399,7 @@ pub async fn k8s_scale(
     name: String,
     replicas: u32,
 ) -> Result<(), String> {
+    ensure_writable(&ctx)?;
     if !matches!(kind.as_str(), "deployments" | "statefulsets" | "replicasets") {
         return Err("scale не поддерживается для этого типа".into());
     }
@@ -380,6 +418,7 @@ pub async fn k8s_restart(
     namespace: String,
     name: String,
 ) -> Result<(), String> {
+    ensure_writable(&ctx)?;
     if !matches!(kind.as_str(), "deployments" | "statefulsets" | "daemonsets") {
         return Err("restart не поддерживается для этого типа".into());
     }

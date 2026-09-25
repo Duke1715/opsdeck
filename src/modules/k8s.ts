@@ -169,6 +169,7 @@ export function mountK8s(root: HTMLElement) {
     <div class="k8s-main">
       <div class="k8s-bar">
         <span class="ctx-title muted">выберите контекст</span>
+        <span class="ro-badge" title="Изменения в этом контексте запрещены">🔒 только чтение</span>
         <select class="ns-select" title="Namespace"></select>
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
@@ -222,10 +223,59 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- contexts -----
 
+  type Prefs = { hidden: string[]; readonly: string[] };
+  let prefs: Prefs = { hidden: [], readonly: [] };
+  const ctxKey = (c: { file: string; context: string }) => `${c.file}|${c.context}`;
+  const isReadonly = () => !!ctx && prefs.readonly.includes(ctxKey(ctx));
+
+  async function setPref(c: CtxInfo, list: "hidden" | "readonly", on: boolean) {
+    const k = ctxKey(c);
+    prefs[list] = prefs[list].filter((x) => x !== k);
+    if (on) prefs[list].push(k);
+    await invoke("k8s_prefs_set", { prefs }).catch((e) => toast(String(e), "err"));
+    if (list === "readonly") toast(on ? `🔒 ${c.context}: только чтение` : `${c.context}: изменения разрешены`);
+    if (list === "hidden" && on) toast(`${c.context} скрыт — вернуть можно внизу списка`);
+    loadContexts();
+  }
+
+  function ctxButton(c: CtxInfo) {
+    const ro = prefs.readonly.includes(ctxKey(c));
+    const b = document.createElement("div");
+    b.className = "ctx-item";
+    b.dataset.key = ctxKey(c);
+    b.classList.toggle("active", !!ctx && ctxKey(ctx) === ctxKey(c));
+    b.classList.toggle("ro", ro);
+    b.title = `${c.server}\ncluster: ${c.cluster}\nuser: ${c.user}`;
+    b.innerHTML = `<span class="ctx-name">${c.current ? "● " : ""}${esc(c.context)}${ro ? " 🔒" : ""}</span>
+      <span class="ctx-server muted">${esc(c.server.replace(/^https?:\/\//, ""))}</span>
+      <span class="ctx-acts">
+        <button class="icon" data-p="ro" title="${ro ? "Разрешить изменения" : "Только чтение: запретить apply/delete/scale/restart/exec"}">${ro ? "🔓" : "🔒"}</button>
+        <button class="icon" data-p="hide" title="Скрыть контекст из списка">🙈</button>
+      </span>`;
+    b.onclick = (e) => {
+      const p = (e.target as HTMLElement).closest<HTMLElement>("[data-p]")?.dataset.p;
+      if (p === "ro") return setPref(c, "readonly", !ro);
+      if (p === "hide") return setPref(c, "hidden", true);
+      selectContext(c);
+    };
+    return b;
+  }
+
+  /** Read-only context: banner + disabled mutating/exec controls. */
+  function syncReadonly() {
+    const ro = isReadonly();
+    root.classList.toggle("readonly", ro);
+    $("[data-act=shell]").toggleAttribute("disabled", ro);
+    $("[data-act=shell]").title = ro ? "В режиме только чтения терминал с kubectl отключён" : "Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)";
+  }
+
   async function loadContexts() {
     contexts = await invoke<CtxInfo[]>("k8s_contexts");
     const groups = new Map<string, CtxInfo[]>();
-    for (const c of contexts) groups.set(c.file, [...(groups.get(c.file) ?? []), c]);
+    prefs = await invoke<Prefs>("k8s_prefs_get").catch(() => ({ hidden: [], readonly: [] }));
+    const visible = contexts.filter((c) => !prefs.hidden.includes(ctxKey(c)));
+    const hidden = contexts.filter((c) => prefs.hidden.includes(ctxKey(c)));
+    for (const c of visible) groups.set(c.file, [...(groups.get(c.file) ?? []), c]);
     ctxList.innerHTML = contexts.length ? "" : `<p class="muted pad">Нет kubeconfig. Нажмите ＋ или перетащите файл.</p>`;
     for (const [file, list] of groups) {
       const g = document.createElement("div");
@@ -238,17 +288,33 @@ export function mountK8s(root: HTMLElement) {
         if (ctx?.file === file) ctx = null;
         loadContexts();
       });
-      for (const c of list) {
-        const b = document.createElement("button");
-        b.className = "ctx-item";
-        b.classList.toggle("active", ctx?.file === c.file && ctx?.context === c.context);
-        b.title = `${c.server}\ncluster: ${c.cluster}\nuser: ${c.user}`;
-        b.innerHTML = `<span class="ctx-name">${c.current ? "● " : ""}${esc(c.context)}</span><span class="ctx-server muted">${esc(c.server.replace(/^https?:\/\//, ""))}</span>`;
-        b.onclick = () => selectContext(c);
-        g.appendChild(b);
+      for (const c of list) g.appendChild(ctxButton(c));
+      ctxList.appendChild(g);
+    }
+    if (hidden.length) {
+      const g = document.createElement("details");
+      g.className = "ctx-hidden";
+      g.innerHTML = `<summary class="muted">Скрытые контексты (${hidden.length})</summary>`;
+      for (const c of hidden) {
+        const row = document.createElement("div");
+        row.className = "ctx-hidden-row";
+        row.innerHTML = `<span class="muted">${esc(c.context)}</span><button class="ghost" title="Вернуть в список">показать</button>`;
+        row.querySelector("button")!.onclick = () => setPref(c, "hidden", false);
+        g.appendChild(row);
       }
       ctxList.appendChild(g);
     }
+    if (ctx && prefs.hidden.includes(ctxKey(ctx))) {
+      // the selected context was just hidden: drop it
+      ctx = null;
+      store.set("ctx", "");
+      $(".ctx-title").textContent = "выберите контекст";
+      $(".ctx-title").classList.add("muted");
+      items = [];
+      closeDrawer();
+      render();
+    }
+    syncReadonly();
     if (!ctx) {
       const last = store.get("ctx");
       const pick = contexts.find((c) => `${c.file}|${c.context}` === last);
@@ -259,7 +325,8 @@ export function mountK8s(root: HTMLElement) {
   async function selectContext(c: CtxInfo) {
     ctx = c;
     store.set("ctx", `${c.file}|${c.context}`);
-    ctxList.querySelectorAll(".ctx-item").forEach((b, i) => b.classList.toggle("active", contexts[i] === c));
+    ctxList.querySelectorAll<HTMLElement>(".ctx-item").forEach((b) => b.classList.toggle("active", b.dataset.key === ctxKey(c)));
+    syncReadonly();
     $(".ctx-title").textContent = c.context;
     $(".ctx-title").classList.remove("muted");
     closeDrawer();
@@ -430,20 +497,23 @@ export function mountK8s(root: HTMLElement) {
       b.onclick = fn;
       actions.appendChild(b);
     };
-    if (kind.id === "pods") {
+    const ro = isReadonly();
+    if (kind.id === "pods" && !ro) {
       act("Shell", () => execShell(o));
-      act("Port-forward", () => portForward(o, "pod"));
     }
+    if (kind.id === "pods") act("Port-forward", () => portForward(o, "pod"));
     if (kind.id === "services") act("Port-forward", () => portForward(o, "svc"));
-    if (["deployments", "statefulsets", "replicasets"].includes(kind.id)) act("Scale", () => scale(o));
-    if (["deployments", "statefulsets", "daemonsets"].includes(kind.id)) act("Restart", () => restart(o));
-    act("Удалить", () => del(o), "ghost danger");
+    if (!ro) {
+      if (["deployments", "statefulsets", "replicasets"].includes(kind.id)) act("Scale", () => scale(o));
+      if (["deployments", "statefulsets", "daemonsets"].includes(kind.id)) act("Restart", () => restart(o));
+      act("Удалить", () => del(o), "ghost danger");
+    }
   }
 
   async function showYaml(o: Obj) {
     drawerBody.innerHTML = `<div class="yaml-pane"><textarea spellcheck="false" class="yaml">загрузка…</textarea>
       <div class="yaml-actions"><span class="err yaml-err"></span><span class="spacer"></span>
-      <button class="ghost" data-y="reload">Перечитать</button><button class="primary" data-y="apply">Применить</button></div></div>`;
+      <button class="ghost" data-y="reload">Перечитать</button><button class="primary" data-y="apply" ${isReadonly() ? "disabled title=\"Контекст в режиме только чтения\"" : ""}>Применить</button></div></div>`;
     const ta = drawerBody.querySelector<HTMLTextAreaElement>("textarea")!;
     const errEl = drawerBody.querySelector<HTMLElement>(".yaml-err")!;
     const load = async () => {
