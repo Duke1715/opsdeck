@@ -252,14 +252,31 @@ export function mountK8s(root: HTMLElement) {
       <span class="ctx-acts">
         <button class="icon" data-p="ro" title="${ro ? "Разрешить изменения" : "Только чтение: запретить apply/delete/scale/restart/exec"}">${ro ? "🔓" : "🔒"}</button>
         <button class="icon" data-p="hide" title="Скрыть контекст из списка">🙈</button>
+        <button class="icon" data-p="del" title="Удалить контекст из kubeconfig (с резервной копией)">🗑</button>
       </span>`;
     b.onclick = (e) => {
       const p = (e.target as HTMLElement).closest<HTMLElement>("[data-p]")?.dataset.p;
       if (p === "ro") return setPref(c, "readonly", !ro);
       if (p === "hide") return setPref(c, "hidden", true);
+      if (p === "del") return deleteContext(c);
       selectContext(c);
     };
     return b;
+  }
+
+  async function deleteContext(c: CtxInfo) {
+    const v = await ask("Удалить контекст",
+      `Удалить «${c.context}» из ${c.file}? Кластер и пользователь тоже удалятся, если их не использует другой контекст. ` +
+      `Перед изменением сохранится копия файла. Для подтверждения введите имя контекста.`,
+      { input: "", placeholder: c.context, ok: "Удалить", danger: true });
+    if (v === null) return;
+    if (v !== c.context) return toast("Имя не совпало — ничего не удалено", "err");
+    try {
+      const backup = await invoke<string>("k8s_delete_context", { ctx: { file: c.file, context: c.context } });
+      toast(`Контекст удалён. Резервная копия: ${backup}`);
+      if (ctx && ctxKey(ctx) === ctxKey(c)) { ctx = null; store.set("ctx", ""); items = []; closeDrawer(); render(); }
+      loadContexts();
+    } catch (e) { toast(String(e), "err"); }
   }
 
   /** Read-only context: banner + disabled mutating/exec controls. */

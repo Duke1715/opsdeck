@@ -178,6 +178,50 @@ pub async fn k8s_remove_source(state: State<'_, K8sState>, file: String) -> Resu
     Ok(())
 }
 
+/// Removes one context from its kubeconfig file (like `kubectl config delete-context`), plus its
+/// cluster/user entries when no other context uses them. A timestamped backup is written first;
+/// an imported file left without contexts is deleted.
+#[tauri::command]
+pub async fn k8s_delete_context(state: State<'_, K8sState>, ctx: Ctx) -> Result<String, String> {
+    let backup = delete_context_in_file(&ctx)?;
+    state.clients.lock().await.remove(&(ctx.file.clone(), ctx.context.clone()));
+    Ok(backup)
+}
+
+fn delete_context_in_file(ctx: &Ctx) -> Result<String, String> {
+    let path = PathBuf::from(&ctx.file);
+    let raw = fs::read_to_string(&path).map_err(err)?;
+    let mut cfg: Value = serde_yaml_ng::from_str(&raw).map_err(err)?;
+    let entry = named(&cfg, "contexts", &ctx.context).ok_or("контекст не найден")?.clone();
+    let cluster = entry["context"]["cluster"].as_str().unwrap_or_default().to_string();
+    let user = entry["context"]["user"].as_str().unwrap_or_default().to_string();
+
+    let contexts = cfg["contexts"].as_array_mut().ok_or("в файле нет contexts")?;
+    contexts.retain(|c| c["name"] != ctx.context.as_str());
+    let still_used = |field: &str, name: &str| contexts.iter().any(|c| c["context"][field] == name);
+    let (drop_cluster, drop_user) = (!still_used("cluster", &cluster), !still_used("user", &user));
+    let left = contexts.len();
+    if drop_cluster {
+        if let Some(a) = cfg["clusters"].as_array_mut() { a.retain(|x| x["name"] != cluster.as_str()); }
+    }
+    if drop_user {
+        if let Some(a) = cfg["users"].as_array_mut() { a.retain(|x| x["name"] != user.as_str()); }
+    }
+    if cfg["current-context"] == ctx.context.as_str() {
+        cfg["current-context"] = json!("");
+    }
+
+    let backup = PathBuf::from(format!("{}.opsdeck-bak-{}", ctx.file, chrono::Local::now().format("%Y%m%d-%H%M%S")));
+    write_private(&backup, &raw)?;
+    let imported = path.parent() == Some(imported_dir()?.as_path());
+    if imported && left == 0 {
+        fs::remove_file(&path).map_err(err)?;
+    } else {
+        write_private(&path, &serde_yaml_ng::to_string(&cfg).map_err(err)?)?;
+    }
+    Ok(backup.to_string_lossy().into_owned())
+}
+
 /// Single-context kubeconfig for kubectl/helm/k9s in a terminal tab. Relative cert paths are
 /// made absolute so the file works from its new location.
 #[tauri::command]
@@ -504,3 +548,4 @@ pub fn k8s_logs_stop(state: State<K8sState>, id: String) {
         let _ = tx.send(());
     }
 }
+
