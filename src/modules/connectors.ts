@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
 import { ask, toast } from "./ui";
+import { registerProvider } from "./palette";
 
 type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string };
 
@@ -144,5 +145,9 @@ export function mountConnectors(root: HTMLElement) {
   }
 
   root.querySelector<HTMLElement>("[data-act=add]")!.onclick = () => openDialog(null);
+  registerProvider(async () => (await invoke<Connector[]>("connectors_list")).map((c) => ({
+    group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url,
+    run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); },
+  })));
   refresh();
 }

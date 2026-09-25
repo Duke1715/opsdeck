@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { listen } from "@tauri-apps/api/event";
 import { ask, esc, toast } from "./ui";
+import { registerProvider } from "./palette";
 
 type Note = { path: string; mtime: number };
 type Vault = { root: string; name: string; notes: Note[] };
@@ -32,6 +34,7 @@ export function mountNotes(root: HTMLElement) {
         <strong class="note-path muted">выберите заметку</strong><span class="dirty" hidden>●</span>
         <span class="spacer"></span>
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
+        <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос Claude Code">@ Claude</button>
         <button data-a="save" title="Ctrl+S" disabled>Сохранить</button>
         <button class="ghost" data-a="obsidian" disabled title="Открыть эту заметку в приложении Obsidian">Obsidian ↗</button>
       </div>
@@ -170,6 +173,9 @@ export function mountNotes(root: HTMLElement) {
       $(".note-path").textContent = path.replace(/\.md$/, "");
       $(".note-path").classList.remove("muted");
       $<HTMLButtonElement>("[data-a=obsidian]").disabled = false;
+      $<HTMLButtonElement>("[data-a=mention]").disabled = false;
+      const fp = fullPath(path);
+      invoke("ide_editor", { editor: { uri: `file://${fp}`, filePath: fp, label: title(path), isActive: true, isDirty: false, languageId: "markdown" } }).catch(() => {});
       markDirty();
       setMode(mode);
       listEl.querySelectorAll<HTMLElement>(".note-item").forEach((b) => b.classList.toggle("active", b.dataset.p === path));
@@ -228,6 +234,48 @@ export function mountNotes(root: HTMLElement) {
   saveBtn.onclick = save;
   $("[data-a=obsidian]").onclick = () => current && invoke("note_open_obsidian", { path: current }).catch((e) => toast(String(e), "err"));
   $("[data-a=reload]").onclick = loadVault;
+
+  // ----- Claude Code IDE bridge -----
+  const fullPath = (rel: string) => `${vault?.root ?? ""}/${rel}`;
+  const lineCol = (text: string, offset: number) => {
+    const before = text.slice(0, offset);
+    const line = before.split("\n").length - 1;
+    return { line, character: offset - (before.lastIndexOf("\n") + 1) };
+  };
+  let selTimer = 0;
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement !== editor || !current) return;
+    clearTimeout(selTimer);
+    selTimer = window.setTimeout(() => {
+      const { selectionStart: a, selectionEnd: b, value } = editor;
+      const fp = fullPath(current!);
+      invoke("ide_selection", { selection: {
+        text: value.slice(a, b), filePath: fp, fileUrl: `file://${fp}`,
+        selection: { start: lineCol(value, a), end: lineCol(value, b), isEmpty: a === b },
+      } }).catch(() => {});
+    }, 250);
+  });
+  $("[data-a=mention]").onclick = () => {
+    if (!current) return;
+    const { selectionStart: a, selectionEnd: b, value } = editor;
+    const lines = !editor.hidden && a !== b ? { lineStart: lineCol(value, a).line, lineEnd: lineCol(value, b).line } : { lineStart: null, lineEnd: null };
+    invoke("ide_at_mention", { filePath: fullPath(current), ...lines })
+      .then(() => toast("Ссылка на заметку вставлена в запрос Claude"), (e) => toast(String(e), "err"));
+  };
+  // Claude asked OpsDeck to open a file (openFile tool)
+  listen<string>("ide-open-file", (e) => {
+    const root = vault?.root;
+    if (root && e.payload.startsWith(root + "/") && e.payload.endsWith(".md")) {
+      window.dispatchEvent(new CustomEvent("show-view", { detail: "notes" }));
+      openNote(e.payload.slice(root.length + 1));
+    } else {
+      toast(`Claude открыл ${e.payload} — OpsDeck показывает только заметки`, "err");
+    }
+  });
+  registerProvider(() => (vault?.notes ?? []).map((n) => ({
+    group: "Заметка", title: n.path.replace(/\.md$/, ""),
+    run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "notes" })); openNote(n.path); },
+  })));
   $("[data-a=collapse]").onclick = () => { openDirs.clear(); saveOpen(); drawList(); };
   $("[data-a=daily]").onclick = async () => {
     try { const p = await invoke<string>("note_daily"); await loadVault(); openNote(p); } catch (e) { toast(String(e), "err"); }

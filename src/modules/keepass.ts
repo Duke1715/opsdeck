@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { esc, toast } from "./ui";
+import { registerProvider } from "./palette";
 
 export type KpStatus = { unlocked: boolean; path: string; keyfile: string; entries: number; lock_minutes: number };
 export type KpEntry = {
@@ -84,6 +85,14 @@ export function pickEntry(): Promise<KpEntry | null> {
     kpStatus().then((st) => (st.unlocked ? showList() : unlockForm(body, st, showList)));
   });
 }
+
+registerProvider(async () => {
+  if (!(await kpStatus()).unlocked) return [];
+  return (await kpEntries()).filter((e) => e.has_password).map((e) => ({
+    group: "KeePass", title: `Пароль: ${e.title}`, hint: [e.username, e.group].filter(Boolean).join(" · "),
+    run: () => invoke("kp_copy", { id: e.id, field: "password" }).then(() => toast(`Пароль «${e.title}» скопирован, очистится через 30 с`), (x) => toast(String(x), "err")),
+  }));
+});
 
 export function mountKeepass(root: HTMLElement) {
   root.innerHTML = `<div class="page kp"><div class="kp-body"></div></div>`;

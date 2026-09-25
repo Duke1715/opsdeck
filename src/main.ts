@@ -8,6 +8,7 @@ import { mountKeepass } from "./modules/keepass";
 import { mountNotes } from "./modules/notes";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountSettings } from "./modules/settings";
+import { registerProvider } from "./modules/palette";
 
 type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
 
@@ -51,6 +52,8 @@ for (const v of views) {
 
 // a module asked for a terminal tab: switch to the terminal view (the tab itself is created there)
 window.addEventListener("open-terminal", () => show("terminal"));
+window.addEventListener("show-view", (e) => show((e as CustomEvent<string>).detail));
+registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.icon, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));
 
 show("terminal");

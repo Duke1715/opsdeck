@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
+import { registerProvider } from "./palette";
 
 type Device = {
   id: string; name: string; host: string; group: string; username: string;
@@ -158,6 +159,10 @@ export function mountMikrotik(root: HTMLElement) {
   };
 
   filter.oninput = draw;
+  registerProvider(async () => (await invoke<Device[]>("mt_list")).flatMap((d) => [
+    { group: "MikroTik", title: `WinBox: ${d.name}`, hint: d.host, run: () => { invoke("mt_winbox", { id: d.id }).catch((e) => toast(String(e), "err")); } },
+    { group: "MikroTik", title: `SSH: ${d.name}`, hint: d.host, run: () => { list.querySelector<HTMLElement>(`tr[data-id="${d.id}"] [data-a=ssh]`)?.click() ?? toast("Откройте раздел MikroTik", "err"); } },
+  ]));
   root.querySelector<HTMLElement>("[data-a=add]")!.onclick = () => open(null);
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "winbox") load(); });
   load();

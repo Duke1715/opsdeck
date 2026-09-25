@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ask, esc, toast } from "./ui";
+import { registerProvider } from "./palette";
 import type { OpenTerminalDetail } from "./terminal";
 
 type CtxInfo = {
@@ -690,6 +691,16 @@ export function mountK8s(root: HTMLElement) {
   }, 5000);
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail === "k8s") { loadContexts(); refresh(); }
+  });
+
+  registerProvider(() => {
+    const go = () => window.dispatchEvent(new CustomEvent("show-view", { detail: "k8s" }));
+    const visible = contexts.filter((c) => !prefs.hidden.includes(ctxKey(c)));
+    return [
+      ...visible.map((c) => ({ group: "Kubernetes", title: `Контекст: ${c.context}`, hint: c.server, run: () => { go(); selectContext(c); } })),
+      ...KINDS.map((k) => ({ group: "Kubernetes", title: `Ресурсы: ${k.label}`, hint: ctx?.context, run: () => { go(); kindList.querySelectorAll<HTMLElement>(".kind-item").forEach((b) => { if (b.textContent === k.label) b.click(); }); } })),
+      ...(ctx && !isReadonly() ? [{ group: "Kubernetes", title: `Терминал kubectl: ${ctx.context}`, run: () => $("[data-act=shell]").click() }] : []),
+    ];
   });
 
   renderKinds();

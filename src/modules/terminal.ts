@@ -1,9 +1,16 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts } from "./pty";
+import { Block, fmtDuration } from "./blocks";
+import { registerProvider } from "./palette";
+import { addSnippet } from "./snippets";
+import { toast } from "./ui";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
-type Tab = { pty: PtyTerminal; btn: HTMLElement; host: HTMLElement };
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean };
+type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
 const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
   "Claude Code": { program: "claude" },
@@ -11,6 +18,7 @@ const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
   Gemini: { program: "gemini" },
   Aider: { program: "aider" },
 };
+const MAX_PANES = 4;
 
 function load(key: string, fallback: string) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -19,6 +27,21 @@ function save(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
+/** Small API for the command palette and other modules. */
+export const terminalApi = {
+  active: null as PtyTerminal | null,
+  paste(text: string) {
+    const t = terminalApi.active;
+    if (!t) return;
+    window.dispatchEvent(new CustomEvent("show-view", { detail: "terminal" }));
+    t.term.paste(text);
+    t.term.focus();
+  },
+  history(): Block[] {
+    return [...(terminalApi.active?.blocks.blocks ?? [])].reverse();
+  },
+};
+
 export function mountTerminal(root: HTMLElement) {
   root.classList.add("terminal-view");
   root.innerHTML = `
@@ -26,7 +49,11 @@ export function mountTerminal(root: HTMLElement) {
       <div class="tabbar">
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">＋</button>
+        <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">◫</button>
+        <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">⊟</button>
         <span class="spacer"></span>
+        <span class="ide-status" title="Claude Code IDE-мост"></span>
+        <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘ Команды</button>
         <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢ в AI</button>
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
       </div>
@@ -42,69 +69,201 @@ export function mountTerminal(root: HTMLElement) {
       <div class="ai-host"></div>
     </aside>`;
 
-  const tabsEl = root.querySelector<HTMLElement>(".tabs")!;
-  const hostsEl = root.querySelector<HTMLElement>(".term-hosts")!;
-  const aiPanel = root.querySelector<HTMLElement>(".ai-panel")!;
-  const aiHost = root.querySelector<HTMLElement>(".ai-host")!;
-  const splitter = root.querySelector<HTMLElement>(".splitter")!;
-  const providerSel = root.querySelector<HTMLSelectElement>(".ai-provider")!;
+  const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+  const tabsEl = $(".tabs"), hostsEl = $(".term-hosts"), aiPanel = $(".ai-panel"), aiHost = $(".ai-host");
+  const splitter = $(".splitter"), providerSel = $<HTMLSelectElement>(".ai-provider");
 
   const tabs: Tab[] = [];
-  let active: Tab | null = null;
+  let activeTab: Tab | null = null;
   let ai: PtyTerminal | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
   providerSel.value = load("opsdeck.ai.provider", "Claude Code");
 
+  const activePane = () => activeTab?.active ?? null;
+  const cwd = () => activePane()?.pty.blocks.cwd || undefined;
+
+  function focusPane(p: Pane) {
+    p.tab.active = p;
+    p.tab.panes.forEach((x) => x.el.classList.toggle("focused", x === p && p.tab.panes.length > 1));
+    terminalApi.active = p.pty;
+  }
+
   function activate(t: Tab) {
-    active = t;
+    activeTab = t;
     for (const x of tabs) {
       x.host.hidden = x !== t;
       x.btn.classList.toggle("active", x === t);
     }
-    requestAnimationFrame(() => { t.pty.resize(); t.pty.term.focus(); });
+    if (t.active) focusPane(t.active);
+    requestAnimationFrame(() => { t.panes.forEach((p) => p.pty.resize()); t.active?.pty.term.focus(); });
   }
 
-  function close(t: Tab) {
+  // ----- panes -----
+
+  function addPane(tab: Tab, opts: OpenTerminalDetail = {}) {
+    const { title, keepOpen, ...spawn } = opts;
+    const el = document.createElement("div");
+    el.className = "pane";
+    el.innerHTML = `<div class="pane-term"></div>
+      <div class="blk-bar" hidden>
+        <span class="blk-status"></span>
+        <button data-b="cmd" title="Скопировать команду">⧉ команда</button>
+        <button data-b="out" title="Скопировать вывод">⧉ вывод</button>
+        <button data-b="save" title="Сохранить команду как сниппет">★</button>
+        <button data-b="ai" title="Отправить команду и вывод в AI">⇢ AI</button>
+      </div>
+      <div class="fail-chip" hidden><span class="fail-text"></span>
+        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">×</button></div>`;
+    tab.host.appendChild(el);
+
+    const pty = new PtyTerminal(el.querySelector<HTMLElement>(".pane-term")!, spawn);
+    const pane: Pane = { pty, el, tab, keepOpen: !!keepOpen };
+    tab.panes.push(pane);
+    if (title) tab.label.textContent = title;
+    pty.term.onTitleChange((t) => { if (tab.active === pane && t) tab.label.textContent = t; });
+    pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
+    pty.onExit = () => { if (!pane.keepOpen) closePane(pane); };
+    wireBlocks(pane);
+    focusPane(pane);
+    requestAnimationFrame(() => { tab.panes.forEach((p) => p.pty.resize()); pty.term.focus(); });
+    return pane;
+  }
+
+  function closePane(p: Pane) {
+    const tab = p.tab;
+    const i = tab.panes.indexOf(p);
+    if (i < 0) return;
+    tab.panes.splice(i, 1);
+    p.pty.dispose();
+    p.el.remove();
+    if (!tab.panes.length) return closeTab(tab);
+    focusPane(tab.panes[Math.max(0, i - 1)]);
+    requestAnimationFrame(() => { tab.panes.forEach((x) => x.pty.resize()); tab.active?.pty.term.focus(); });
+  }
+
+  function split(dir: "row" | "column") {
+    const tab = activeTab;
+    if (!tab) return;
+    if (tab.panes.length >= MAX_PANES) return toast(`Не больше ${MAX_PANES} панелей во вкладке`, "err");
+    if (tab.panes.length > 1 && tab.dir !== dir) return toast("Во вкладке уже есть разделение в другую сторону", "err");
+    tab.dir = dir;
+    tab.host.style.flexDirection = dir;
+    addPane(tab, { cwd: cwd() });
+  }
+
+  function cyclePane(step: 1 | -1) {
+    const tab = activeTab;
+    if (!tab?.active || tab.panes.length < 2) return;
+    const i = (tab.panes.indexOf(tab.active) + step + tab.panes.length) % tab.panes.length;
+    focusPane(tab.panes[i]);
+    tab.panes[i].pty.term.focus();
+  }
+
+  // ----- tabs -----
+
+  function closeTab(t: Tab) {
     const i = tabs.indexOf(t);
     if (i < 0) return;
     tabs.splice(i, 1);
-    t.pty.dispose();
+    t.panes.splice(0).forEach((p) => p.pty.dispose());
     t.btn.remove();
     t.host.remove();
-    if (tabs.length === 0) newTab();
-    else if (active === t) activate(tabs[Math.max(0, i - 1)]);
+    if (!tabs.length) newTab();
+    else if (activeTab === t) activate(tabs[Math.max(0, i - 1)]);
   }
 
   function newTab(opts: OpenTerminalDetail = {}) {
     const host = document.createElement("div");
     host.className = "term-host";
     hostsEl.appendChild(host);
-
     const btn = document.createElement("div");
     btn.className = "tab";
     btn.innerHTML = `<span class="label"></span><span class="x" title="Закрыть">×</span>`;
     tabsEl.appendChild(btn);
-
-    const { title, keepOpen, ...spawn } = opts;
-    const pty = new PtyTerminal(host, spawn);
-    const t: Tab = { pty, btn, host };
     const label = btn.querySelector<HTMLElement>(".label")!;
-    label.textContent = title ?? `shell ${tabs.length + 1}`;
-    pty.term.onTitleChange((title) => (label.textContent = title || label.textContent));
-    btn.onclick = () => activate(t);
-    btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); close(t); };
-    if (!keepOpen) pty.onExit = () => close(t);
-
-    tabs.push(t);
-    activate(t);
+    label.textContent = `shell ${tabs.length + 1}`;
+    const tab: Tab = { btn, host, label, panes: [], active: null, dir: "row" };
+    btn.onclick = () => activate(tab);
+    btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(tab); };
+    tabs.push(tab);
+    // a plain new tab starts where the current one is
+    addPane(tab, opts.program ? opts : { cwd: cwd(), ...opts });
+    activate(tab);
   }
+
+  // ----- command blocks -----
+
+  function blockText(p: Pane, b: Block, lines = 150) {
+    return p.pty.blocks.output(b, lines);
+  }
+
+  function askAi(p: Pane, b: Block) {
+    const out = blockText(p, b);
+    const status = b.exit === 0 ? "завершилась успешно" : `завершилась с кодом ${b.exit}`;
+    sendToAi(`Команда в терминале ${status}${p.pty.blocks.cwd ? ` (каталог ${p.pty.blocks.cwd})` : ""}:\n$ ${b.command}\n\nВывод:\n\`\`\`\n${out || "(пусто)"}\n\`\`\`\n${b.exit === 0 ? "Поясни результат." : "Объясни причину ошибки и как исправить."}`);
+  }
+
+  function wireBlocks(p: Pane) {
+    const bar = p.el.querySelector<HTMLElement>(".blk-bar")!;
+    const chip = p.el.querySelector<HTMLElement>(".fail-chip")!;
+    const termEl = p.el.querySelector<HTMLElement>(".pane-term")!;
+    let hovered: Block | undefined;
+    let chipBlock: Block | undefined;
+    let chipTimer = 0;
+
+    termEl.addEventListener("mousemove", (e) => {
+      const screen = termEl.querySelector<HTMLElement>(".xterm-screen");
+      if (!screen || !p.pty.blocks.active) return;
+      const r = screen.getBoundingClientRect();
+      const cellH = r.height / p.pty.term.rows;
+      const row = Math.floor((e.clientY - r.top) / cellH);
+      const vp = p.pty.term.buffer.active.viewportY;
+      const b = p.pty.blocks.at(vp + row);
+      if (!b || b.prompt.line < vp) { bar.hidden = true; hovered = undefined; return; }
+      hovered = b;
+      bar.hidden = false;
+      bar.style.top = `${r.top - p.el.getBoundingClientRect().top + (b.prompt.line - vp) * cellH}px`;
+      const ok = b.exit === 0;
+      const st = bar.querySelector<HTMLElement>(".blk-status")!;
+      st.textContent = `${ok ? "✓" : `✗ ${b.exit}`} · ${fmtDuration(b.duration)}`;
+      st.className = `blk-status ${ok ? "ok" : "bad"}`;
+    });
+    p.el.addEventListener("mouseleave", () => (bar.hidden = true));
+
+    bar.addEventListener("click", async (e) => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b;
+      const b = hovered;
+      if (!act || !b) return;
+      if (act === "cmd") { await invoke("clip_write", { text: b.command }); toast("Команда скопирована"); }
+      if (act === "out") { await invoke("clip_write", { text: blockText(p, b, 5000) }); toast("Вывод скопирован"); }
+      if (act === "save") addSnippet(b.command);
+      if (act === "ai") askAi(p, b);
+    });
+
+    p.pty.blocks.onFinished = (b) => {
+      // 130 = Ctrl+C, 148 = Ctrl+Z: the user stopped it on purpose
+      if (b.exit === 0 || b.exit === 130 || b.exit === 148) { chip.hidden = true; return; }
+      chipBlock = b;
+      chip.querySelector(".fail-text")!.textContent = `✗ «${b.command.length > 40 ? b.command.slice(0, 40) + "…" : b.command}» — код ${b.exit}`;
+      chip.hidden = false;
+      clearTimeout(chipTimer);
+      chipTimer = window.setTimeout(() => (chip.hidden = true), 12000);
+    };
+    chip.addEventListener("click", (e) => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>("[data-f]")?.dataset.f;
+      if (act === "ai" && chipBlock) askAi(p, chipBlock);
+      if (act) chip.hidden = true;
+    });
+  }
+
+  // ----- AI panel -----
 
   function startAi() {
     ai?.dispose();
     aiHost.innerHTML = "";
     const p = AI_PROVIDERS[providerSel.value];
-    ai = new PtyTerminal(aiHost, { program: p.program, args: p.args });
+    ai = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
   }
 
   function toggleAi(force?: boolean) {
@@ -113,26 +272,25 @@ export function mountTerminal(root: HTMLElement) {
     splitter.hidden = !show;
     if (show && !ai) startAi();
     requestAnimationFrame(() => {
-      active?.pty.resize();
+      activeTab?.panes.forEach((p) => p.pty.resize());
       ai?.resize();
-      (show ? ai : active?.pty)?.term.focus();
+      (show ? ai : activePane()?.pty)?.term.focus();
     });
   }
 
   function sendSelection() {
-    const sel = active?.pty.term.getSelection().trim();
+    const sel = activePane()?.pty.term.getSelection().trim();
     if (sel) sendToAi(sel);
   }
 
   function sendToAi(text: string) {
     const fresh = !ai;
     toggleAi(true);
-    // bracketed paste so multi-line output lands as one message instead of being submitted line by line
+    // bracketed paste so multi-line text lands as one message instead of being submitted line by line
     setTimeout(() => ai?.send(`\x1b[200~${text}\x1b[201~`), fresh ? 1500 : 0);
     ai?.term.focus();
   }
 
-  // drag to resize the AI panel
   splitter.addEventListener("pointerdown", (e) => {
     splitter.setPointerCapture(e.pointerId);
     const move = (ev: PointerEvent) => {
@@ -148,29 +306,68 @@ export function mountTerminal(root: HTMLElement) {
   });
   aiPanel.style.width = load("opsdeck.ai.width", "520px");
 
+  // ----- IDE bridge status -----
+
+  const ideEl = $(".ide-status");
+  const setIde = (n: number) => {
+    ideEl.textContent = n ? "◆ Claude IDE" : "";
+    ideEl.title = n ? "Claude Code подключён к OpsDeck: видит выделение в заметках, @-упоминания" : "";
+  };
+  listen<number>("ide-status", (e) => setIde(e.payload));
+  invoke<{ clients: number }>("ide_status").then((s) => setIde(s.clients)).catch(() => {});
+
+  // ----- wiring -----
+
   providerSel.onchange = () => { save("opsdeck.ai.provider", providerSel.value); startAi(); };
-  root.querySelector<HTMLElement>("[data-act=new]")!.onclick = () => newTab();
+  $("[data-act=new]").onclick = () => newTab();
+  $("[data-act=split-r]").onclick = () => split("row");
+  $("[data-act=split-d]").onclick = () => split("column");
+  $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
+  $("[data-act=ai]").onclick = () => toggleAi();
+  $("[data-act=send]").onclick = sendSelection;
+  $("[data-act=ai-restart]").onclick = startAi;
   window.addEventListener("send-to-ai", (e) => sendToAi((e as CustomEvent<string>).detail));
   window.addEventListener("open-terminal", (e) => newTab((e as CustomEvent<OpenTerminalDetail>).detail));
-  root.querySelector<HTMLElement>("[data-act=ai]")!.onclick = () => toggleAi();
-  root.querySelector<HTMLElement>("[data-act=send]")!.onclick = sendSelection;
-  root.querySelector<HTMLElement>("[data-act=ai-restart]")!.onclick = startAi;
 
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;
-    const k = e.key.toUpperCase();
+    const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    const p = activePane();
     if (k === "T") newTab();
-    else if (k === "W" && active) close(active);
+    else if (k === "W" && p) closePane(p);
+    else if (k === "D") split("row");
+    else if (k === "E") split("column");
     else if (k === "I") toggleAi();
     else if (k === "A") sendSelection();
+    else if (k === "ArrowUp" && p) p.pty.blocks.jump(-1);
+    else if (k === "ArrowDown" && p) p.pty.blocks.jump(1);
+    else if (k === "ArrowRight") cyclePane(1);
+    else if (k === "ArrowLeft") cyclePane(-1);
     else return;
     e.preventDefault();
+    e.stopPropagation();
   }, true);
 
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail !== "terminal") return;
-    requestAnimationFrame(() => { active?.pty.resize(); ai?.resize(); active?.pty.term.focus(); });
+    requestAnimationFrame(() => { activeTab?.panes.forEach((p) => p.pty.resize()); ai?.resize(); activePane()?.pty.term.focus(); });
   });
+
+  registerProvider(() => [
+    { group: "Терминал", title: "Новая вкладка", hint: "Ctrl+Shift+T", run: () => { show(); newTab(); } },
+    { group: "Терминал", title: "Разделить вправо", hint: "Ctrl+Shift+D", run: () => { show(); split("row"); } },
+    { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
+    { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },
+    ...Object.keys(AI_PROVIDERS).map((name) => ({
+      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },
+    })),
+    // recent commands of the active pane, newest first, without duplicates
+    ...[...new Map(terminalApi.history().map((b) => [b.command, b])).values()].slice(0, 40).map((b) => ({
+      group: "История", title: b.command, hint: b.exit === 0 ? "✓" : `✗ ${b.exit}`,
+      run: () => terminalApi.paste(b.command),
+    })),
+  ]);
+  const show = () => window.dispatchEvent(new CustomEvent("show-view", { detail: "terminal" }));
 
   newTab();
 }

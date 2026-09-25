@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
+import { mountSnippets } from "./snippets";
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number;
@@ -26,10 +27,12 @@ export function mountSettings(root: HTMLElement) {
         <datalist id="dl-kp"></datalist><datalist id="dl-ob"></datalist><datalist id="dl-wb"></datalist>
         <div class="row"><button class="primary" type="submit">Сохранить</button><span class="muted detect-state"></span></div>
       </form>
+      <fieldset class="sn-field"><legend>Сниппеты</legend><div class="sn-root"></div></fieldset>
       <p class="muted">Конфиги: ~/.config/opsdeck/ · пароли коннекторов и роутеров — в системном keyring.</p>
     </div>`;
 
   const form = root.querySelector("form")!;
+  mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
   const f = (n: keyof Settings) => form.elements.namedItem(n) as HTMLInputElement;
 
   async function load() {
