@@ -112,10 +112,18 @@ pub fn cleanup(app: &AppHandle) {
 async fn connection(app: AppHandle, stream: tokio::net::TcpStream) {
     let token = app.state::<IdeState>().token.clone();
     // only the CLI with the token from the lock file; browsers always send Origin
-    let check = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
+    let check = move |req: &Request, mut resp: Response| -> Result<Response, ErrorResponse> {
         let h = req.headers();
         let authed = h.get("x-claude-code-ide-authorization").and_then(|v| v.to_str().ok()) == Some(token.as_str());
         if authed && h.get("origin").is_none() {
+            // claude opens the socket with subprotocol "mcp" and drops it if the server doesn't echo it
+            let wants_mcp = h
+                .get("sec-websocket-protocol")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|p| p.split(',').any(|x| x.trim() == "mcp"));
+            if wants_mcp {
+                resp.headers_mut().insert("sec-websocket-protocol", http::HeaderValue::from_static("mcp"));
+            }
             Ok(resp)
         } else {
             Err(http::Response::builder().status(401).body(None).unwrap())
