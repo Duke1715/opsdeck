@@ -17,8 +17,8 @@ export function mountSettings(root: HTMLElement) {
           <label>Ключевой файл (необязательно) <input name="keepass_keyfile" spellcheck="false" /></label>
           <label>Автоблокировка, минут без действий (0 — выключить) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
         </fieldset>
-        <fieldset><legend>Obsidian</legend>
-          <label>Vault (папка с .obsidian) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
+        <fieldset><legend>Заметки</legend>
+          <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
         </fieldset>
         <fieldset><legend>MikroTik</legend>
           <label>WinBox <input name="winbox_path" list="dl-wb" spellcheck="false" /></label>

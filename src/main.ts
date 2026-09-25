@@ -16,7 +16,7 @@ const views: View[] = [
   { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
   { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
-  { id: "notes", icon: "✎", title: "Obsidian", mount: mountNotes },
+  { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
   { id: "vault", icon: "🔑", title: "KeePass", mount: mountKeepass },
   { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
   { id: "settings", icon: "⚙", title: "Настройки", mount: mountSettings, bottom: true },

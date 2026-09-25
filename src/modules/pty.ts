@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ShellBlocks } from "./blocks";
 
 let seq = 0;
 
@@ -25,8 +26,10 @@ export class PtyTerminal {
   readonly id = `pty${++seq}`;
   readonly term = new Terminal({
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, cursorBlink: true,
-    scrollback: 20000, theme, allowProposedApi: true,
+    scrollback: 20000, theme, allowProposedApi: true, overviewRulerWidth: 8,
   });
+  /** Command blocks (only populated when the shell integration is active). */
+  readonly blocks = new ShellBlocks(this.term);
   private fit = new FitAddon();
   private unlisten: UnlistenFn[] = [];
   private ro: ResizeObserver;

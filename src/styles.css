@@ -272,3 +272,24 @@ dialog.mt-dialog { width: 560px; }
   display: flex; flex-direction: column; gap: 10px; }
 .settings legend { padding: 0 6px; color: var(--accent); }
 .settings label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+
+/* notes tree */
+.notes-list { font-size: 13px; }
+.tree-row, .note-item { --depth: 0; display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 0;
+  background: transparent; text-align: left; padding: 3px 10px 3px calc(10px + var(--depth) * 16px); white-space: nowrap; }
+.note-item { flex-direction: row; padding-left: calc(28px + var(--depth) * 16px); color: var(--text); }
+.tree-row:hover, .note-item:hover { background: var(--panel-2); }
+.tree-row { color: var(--text); font-weight: 500; }
+.tree-caret { width: 10px; font-size: 10px; color: var(--muted); transition: transform .12s; flex: none; }
+.tree-dir.open > .tree-row .tree-caret { transform: rotate(90deg); }
+.tree-dir:not(.open) > .tree-children { display: none; }
+.tree-icon { flex: none; font-size: 12px; opacity: .8; }
+.tree-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tree-count { margin-left: auto; font-size: 11px; color: var(--muted); padding-left: 8px; }
+.tree-children { position: relative; }
+/* guide line for each nesting level */
+.tree-dir.open > .tree-children::before { content: ""; position: absolute; top: 0; bottom: 4px; left: 0; width: 1px;
+  background: var(--border); margin-left: calc(15px + var(--guide, 0) * 16px); }
+.tree-section > .tree-row { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.tree-sep { height: 1px; background: var(--border); margin: 6px 10px; }
+.note-item.active { background: var(--panel-2); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
