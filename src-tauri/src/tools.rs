@@ -31,7 +31,7 @@ struct Line {
 }
 
 /// Hostnames, IPv4/IPv6 literals. Rejects anything that could be parsed as a flag.
-fn valid_host(s: &str) -> bool {
+pub fn valid_host(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 253
         && !s.starts_with('-')

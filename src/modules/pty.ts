@@ -36,6 +36,19 @@ export class PtyTerminal {
     this.term.loadAddon(this.fit);
     this.term.open(host);
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey) return true;
+      const k = e.key.toUpperCase();
+      if (k === "C" && this.term.hasSelection()) {
+        invoke("clip_write", { text: this.term.getSelection() });
+        return false;
+      }
+      if (k === "V") {
+        invoke<string>("clip_read").then((t) => t && this.term.paste(t));
+        return false;
+      }
+      return true;
+    });
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     this.start(opts);

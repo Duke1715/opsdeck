@@ -3,19 +3,23 @@ import "./styles.css";
 import { mountTerminal } from "./modules/terminal";
 import { mountNetwork } from "./modules/network";
 import { mountConnectors } from "./modules/connectors";
-import { mountPlaceholder } from "./modules/placeholder";
 import { mountK8s } from "./modules/k8s";
+import { mountKeepass } from "./modules/keepass";
+import { mountNotes } from "./modules/notes";
+import { mountMikrotik } from "./modules/mikrotik";
+import { mountSettings } from "./modules/settings";
 
-type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; onShow?: () => void };
+type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
 
 const views: View[] = [
   { id: "terminal", icon: "▶", title: "Терминал + AI", mount: mountTerminal },
   { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
   { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
-  { id: "notes", icon: "✎", title: "Obsidian", mount: (el) => mountPlaceholder(el, "Obsidian", "Фаза 3: подключение vault, поиск и редактирование заметок, открытие в Obsidian через obsidian://.") },
-  { id: "vault", icon: "🔑", title: "KeePass", mount: (el) => mountPlaceholder(el, "KeePass", "Фаза 3: чтение .kdbx, выдача кредов коннекторам, Winbox и SSH.") },
-  { id: "winbox", icon: "⌘", title: "MikroTik / Winbox", mount: (el) => mountPlaceholder(el, "Winbox", "Фаза 3: список роутеров, запуск winbox с кредами из KeePass, SSH в терминал.") },
+  { id: "notes", icon: "✎", title: "Obsidian", mount: mountNotes },
+  { id: "vault", icon: "🔑", title: "KeePass", mount: mountKeepass },
+  { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
+  { id: "settings", icon: "⚙", title: "Настройки", mount: mountSettings, bottom: true },
 ];
 
 const sidebar = document.getElementById("sidebar")!;
@@ -34,6 +38,7 @@ for (const v of views) {
   btn.title = v.title;
   btn.textContent = v.icon;
   btn.onclick = () => show(v.id);
+  if (v.bottom) btn.classList.add("bottom");
   sidebar.appendChild(btn);
 
   const pane = document.createElement("section");

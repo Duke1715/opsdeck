@@ -1,14 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
+import { pickEntry } from "./keepass";
+import { ask, toast } from "./ui";
 
-type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string };
+type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
-  grafana: { label: "Grafana", auth: ["password", "none"], hint: "Логин/пароль локального пользователя. SSO/OAuth — вход вручную, сессия сохранится." },
-  argocd: { label: "ArgoCD", auth: ["password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
-  gitlab: { label: "GitLab", auth: ["password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
+  grafana: { label: "Grafana", auth: ["keepass", "password", "none"], hint: "Логин/пароль локального пользователя. SSO/OAuth — вход вручную, сессия сохранится." },
+  argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
+  gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
-const AUTH_LABEL: Record<string, string> = { password: "логин/пароль", token: "токен", none: "без автологина" };
+const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", password: "логин/пароль", token: "токен", none: "без автологина" };
 
 export function mountConnectors(root: HTMLElement) {
   root.innerHTML = `
@@ -26,6 +28,7 @@ export function mountConnectors(root: HTMLElement) {
           <label>Название <input name="name" required placeholder="prod grafana" /></label>
           <label>URL <input name="url" type="url" required placeholder="https://grafana.example.com" /></label>
           <label>Авторизация <select name="auth"></select></label>
+          <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <label data-a="user">Логин <input name="username" autocomplete="off" /></label>
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
           <p class="muted hint"></p>
@@ -43,6 +46,15 @@ export function mountConnectors(root: HTMLElement) {
   const form = dialog.querySelector("form")!;
   const f = (n: string) => form.elements.namedItem(n) as HTMLInputElement & HTMLSelectElement;
   let editing: Connector | null = null;
+  let boundEntry = "";
+  const setBound = (id: string, label?: string) => {
+    boundEntry = id;
+    form.querySelector(".kp-bound")!.textContent = id ? (label ?? "запись выбрана") : "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=pick]")!.onclick = async () => {
+    const e = await pickEntry();
+    if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
 
   for (const [k, v] of Object.entries(KINDS)) f("kind").add(new Option(v.label, k));
 
@@ -54,8 +66,10 @@ export function mountConnectors(root: HTMLElement) {
     for (const a of kind.auth) authSel.add(new Option(AUTH_LABEL[a], a));
     authSel.value = kind.auth.includes(prev) ? prev : kind.auth[0];
     const auth = authSel.value;
-    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password";
-    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none";
+    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password" && auth !== "keepass";
+    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none" || auth === "keepass";
+    form.querySelector<HTMLElement>("[data-a=keepass]")!.hidden = auth !== "keepass";
+    f("username").placeholder = auth === "keepass" ? "из записи KeePass" : "";
     form.querySelector<HTMLElement>(".secret-label")!.textContent = auth === "token" ? "Токен" : "Пароль";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector<HTMLElement>(".hint")!.textContent = kind.hint;
@@ -71,6 +85,7 @@ export function mountConnectors(root: HTMLElement) {
     f("name").value = c?.name ?? "";
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
+    setBound(c?.keepass_entry ?? "");
     syncForm();
     if (c) { f("auth").value = c.auth; syncForm(); }
     dialog.showModal();
@@ -83,6 +98,7 @@ export function mountConnectors(root: HTMLElement) {
       id: editing?.id ?? crypto.randomUUID(),
       kind: f("kind").value, name: f("name").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
+      keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
     };
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null });
@@ -115,10 +131,10 @@ export function mountConnectors(root: HTMLElement) {
       card.querySelector(".card-name")!.textContent = c.name;
       card.querySelector(".card-url")!.textContent = c.url;
       card.querySelector<HTMLElement>("[data-act=open]")!.onclick = () =>
-        invoke("connector_open", { id: c.id }).catch((e) => alert(e));
+        invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err"));
       card.querySelector<HTMLElement>("[data-act=edit]")!.onclick = () => openDialog(c);
       card.querySelector<HTMLElement>("[data-act=del]")!.onclick = async () => {
-        if (confirm(`Удалить «${c.name}»? Сохранённый секрет тоже будет удалён.`)) {
+        if ((await ask("Удалить коннектор", `Удалить «${c.name}»? Сохранённый секрет тоже будет удалён.`, { ok: "Удалить", danger: true })) !== null) {
           await invoke("connector_delete", { id: c.id });
           refresh();
         }

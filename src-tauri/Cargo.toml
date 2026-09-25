@@ -23,4 +23,8 @@ serde_yaml_ng = "0.10"
 futures = "0.3"
 chrono = "0.4"
 dirs = "6"
+keepass = "0.15"
+tauri-plugin-clipboard-manager = "2"
+zeroize = "1"
+uuid = "1"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }

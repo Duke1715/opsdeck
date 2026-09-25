@@ -1,13 +1,24 @@
 mod connectors;
 mod k8s;
+mod keepass;
+mod mikrotik;
+mod notes;
+mod settings;
+mod store;
 mod pty;
 mod tools;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(pty::PtyState::default())
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
+        .manage(keepass::KeepassState::default())
+        .setup(|app| {
+            keepass::spawn_autolock(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pty::pty_spawn,
             pty::pty_write,
@@ -31,7 +42,32 @@ pub fn run() {
             k8s::k8s_restart,
             k8s::k8s_logs_start,
             k8s::k8s_logs_stop,
+            settings::settings_get,
+            settings::settings_set,
+            settings::settings_detect,
+            keepass::kp_status,
+            keepass::kp_unlock,
+            keepass::kp_lock,
+            keepass::kp_entries,
+            keepass::kp_copy,
+            keepass::kp_reveal,
+            keepass::kp_notes,
+            keepass::kp_open_external,
+            keepass::clip_write,
+            keepass::clip_read,
+            mikrotik::mt_list,
+            mikrotik::mt_save,
+            mikrotik::mt_delete,
+            mikrotik::mt_winbox,
+            mikrotik::mt_ssh,
+            notes::notes_list,
+            notes::note_read,
+            notes::note_write,
+            notes::note_search,
+            notes::note_open_obsidian,
+            notes::note_daily,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OpsDeck");
 }
+

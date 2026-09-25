@@ -3,11 +3,14 @@
 //! Opening a connector creates a separate webview window with an init script that logs in
 //! on the configured origin only; the window has no IPC access to the app.
 
+use crate::{
+    keepass::{self, KeepassState},
+    store,
+};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
 
-const KEYRING_SERVICE: &str = "opsdeck";
+const FILE: &str = "connectors.json";
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Connector {
@@ -18,41 +21,24 @@ pub struct Connector {
     pub url: String,
     #[serde(default)]
     pub username: String,
-    /// password | token | none
+    /// password | token | keepass | none
     #[serde(default = "default_auth")]
     pub auth: String,
+    /// KeePass entry uuid when auth == "keepass"
+    #[serde(default)]
+    pub keepass_entry: String,
 }
 
 fn default_auth() -> String {
     "password".into()
 }
 
-fn config_path() -> Result<PathBuf, String> {
-    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("connectors.json"))
+fn secret_key(id: &str) -> String {
+    format!("connector:{id}")
 }
 
 fn load() -> Result<Vec<Connector>, String> {
-    let path = config_path()?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
-}
-
-fn store(list: &[Connector]) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(list).map_err(|e| e.to_string())?;
-    fs::write(config_path()?, raw).map_err(|e| e.to_string())
-}
-
-fn entry(id: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, &format!("connector:{id}")).map_err(|e| e.to_string())
-}
-
-fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    store::load_json(FILE)
 }
 
 #[tauri::command]
@@ -63,37 +49,38 @@ pub fn connectors_list() -> Result<Vec<Connector>, String> {
 /// `secret`: Some(non-empty) replaces the stored secret, None/empty keeps the existing one.
 #[tauri::command]
 pub fn connector_save(connector: Connector, secret: Option<String>) -> Result<(), String> {
-    if !valid_id(&connector.id) {
+    if !store::valid_id(&connector.id) {
         return Err("invalid id".into());
     }
     let url = Url::parse(&connector.url).map_err(|e| format!("bad URL: {e}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("URL must be http(s)".into());
     }
+    if connector.auth == "keepass" && connector.keepass_entry.is_empty() {
+        return Err("выберите запись KeePass".into());
+    }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
-        entry(&connector.id)?.set_password(&s).map_err(|e| e.to_string())?;
+        store::secret_set(&secret_key(&connector.id), &s)?;
     }
     let mut list = load()?;
     match list.iter_mut().find(|c| c.id == connector.id) {
         Some(c) => *c = connector,
         None => list.push(connector),
     }
-    store(&list)
+    store::save_json(FILE, &list)
 }
 
 #[tauri::command]
 pub fn connector_delete(id: String) -> Result<(), String> {
     let mut list = load()?;
     list.retain(|c| c.id != id);
-    if let Ok(e) = entry(&id) {
-        let _ = e.delete_credential();
-    }
-    store(&list)
+    store::secret_delete(&secret_key(&id));
+    store::save_json(FILE, &list)
 }
 
 #[tauri::command]
-pub fn connector_open(app: AppHandle, id: String) -> Result<(), String> {
-    let c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;
+pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<(), String> {
+    let mut c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;
     let label = format!("conn-{}", c.id);
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
@@ -102,7 +89,15 @@ pub fn connector_open(app: AppHandle, id: String) -> Result<(), String> {
     let url = Url::parse(&c.url).map_err(|e| e.to_string())?;
     let secret = match c.auth.as_str() {
         "none" => String::new(),
-        _ => entry(&c.id)?.get_password().unwrap_or_default(),
+        "keepass" => {
+            let (user, pass) = keepass::credentials(&kp, &c.keepass_entry)?;
+            if c.username.is_empty() {
+                c.username = user;
+            }
+            c.auth = "password".into(); // same login flow as a stored password
+            pass
+        }
+        _ => store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
     };
 
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.clone()))
