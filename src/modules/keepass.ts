@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { esc, toast } from "./ui";
+import { esc, overlay, toast } from "./ui";
 import { registerProvider } from "./palette";
 
 export type KpStatus = { unlocked: boolean; path: string; keyfile: string; entries: number; lock_minutes: number };
@@ -52,11 +52,12 @@ export function pickEntry(): Promise<KpEntry | null> {
   dlg.innerHTML = `<h3>Запись KeePass</h3><div class="kp-picker-body"></div>
     <div class="actions"><button data-a="cancel">Отмена</button></div>`;
   document.body.appendChild(dlg);
+  overlay(true);
   const body = dlg.querySelector<HTMLElement>(".kp-picker-body")!;
 
   return new Promise((resolve) => {
     let result: KpEntry | null = null;
-    dlg.addEventListener("close", () => { dlg.remove(); resolve(result); });
+    dlg.addEventListener("close", () => { overlay(false); dlg.remove(); resolve(result); });
     dlg.querySelector<HTMLElement>("[data-a=cancel]")!.onclick = () => dlg.close();
 
     const showList = () => {

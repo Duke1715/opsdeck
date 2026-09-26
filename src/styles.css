@@ -387,3 +387,14 @@ pre.ro-text { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; background
 .crd-filter { margin: 4px 12px 6px; width: calc(100% - 24px); padding: 3px 8px; font-size: 12px; }
 .crd-group summary { cursor: pointer; padding: 3px 12px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crd-item { padding-left: 26px !important; }
+
+/* embedded web panels */
+.web { flex-direction: column; }
+.web-tabs { flex: none; }
+.web-tabs .tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.web-tabs .dot.kind-grafana { background: #f2a54a; }
+.web-tabs .dot.kind-argocd { background: #ef7b4d; }
+.web-tabs .dot.kind-gitlab { background: #e2432a; }
+.web-slot { flex: 1; min-height: 0; background: var(--bg); }
+.web-home { flex: 1; }
+.web-nav { display: flex; gap: 2px; }

@@ -3408,6 +3408,7 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
+ "gtk",
  "k8s-openapi",
  "keepass",
  "keyring",
@@ -3422,6 +3423,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
+ "webkit2gtk",
  "zeroize",
 ]
 

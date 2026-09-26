@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
-import { ask, toast } from "./ui";
+import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 
 type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string };
@@ -14,13 +14,27 @@ const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
 const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", password: "логин/пароль", token: "токен", none: "без автологина" };
 
 export function mountConnectors(root: HTMLElement) {
+  root.classList.add("web");
   root.innerHTML = `
-    <div class="page">
+    <div class="tabbar web-tabs">
+      <div class="tab active" data-t="home">☰ Панели</div>
+      <div class="tabs web-tablist"></div>
+      <span class="spacer"></span>
+      <span class="web-nav" hidden>
+        <button class="icon" data-n="back" title="Назад">←</button>
+        <button class="icon" data-n="forward" title="Вперёд">→</button>
+        <button class="icon" data-n="reload" title="Обновить">↻</button>
+        <button class="icon" data-n="home" title="На стартовую страницу">⌂</button>
+        <button class="icon" data-n="window" title="Открыть в отдельном окне">⧉</button>
+      </span>
+    </div>
+    <div class="web-slot" hidden></div>
+    <div class="page web-home">
       <div class="page-head">
         <h2>Веб-панели</h2>
         <button class="primary" data-act="add">＋ Добавить</button>
       </div>
-      <p class="muted">Grafana, ArgoCD, GitLab и любые другие веб-интерфейсы открываются в отдельном окне с автологином. Секреты хранятся в системном keyring.</p>
+      <p class="muted">Grafana, ArgoCD, GitLab и любые другие веб-интерфейсы открываются вкладками здесь же (или в отдельном окне — ⧉) с автологином. Секреты хранятся в системном keyring или KeePass.</p>
       <div class="cards"></div>
       <dialog class="conn-dialog">
         <form method="dialog">
@@ -103,6 +117,8 @@ export function mountConnectors(root: HTMLElement) {
     };
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null });
+      // settings changed: the embedded panel is recreated with them on next show
+      if (editing) invoke("web_embed_close", { id: connector.id }).catch(() => {});
       dialog.close();
       refresh();
     } catch (err) {
@@ -125,17 +141,20 @@ export function mountConnectors(root: HTMLElement) {
         <div class="card-url muted"></div>
         <div class="card-actions">
           <button class="primary" data-act="open">Открыть</button>
+          <button class="ghost" data-act="window" title="Открыть в отдельном окне">⧉</button>
           <button class="ghost" data-act="edit">Изменить</button>
           <button class="ghost danger" data-act="del">Удалить</button>
         </div>`;
       card.querySelector(".card-kind")!.textContent = KINDS[c.kind]?.label ?? c.kind;
       card.querySelector(".card-name")!.textContent = c.name;
       card.querySelector(".card-url")!.textContent = c.url;
-      card.querySelector<HTMLElement>("[data-act=open]")!.onclick = () =>
+      card.querySelector<HTMLElement>("[data-act=open]")!.onclick = () => openTab(c);
+      card.querySelector<HTMLElement>("[data-act=window]")!.onclick = () =>
         invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err"));
       card.querySelector<HTMLElement>("[data-act=edit]")!.onclick = () => openDialog(c);
       card.querySelector<HTMLElement>("[data-act=del]")!.onclick = async () => {
         if ((await ask("Удалить коннектор", `Удалить «${c.name}»? Сохранённый секрет тоже будет удалён.`, { ok: "Удалить", danger: true })) !== null) {
+          closeTab(c.id);
           await invoke("connector_delete", { id: c.id });
           refresh();
         }
@@ -144,10 +163,107 @@ export function mountConnectors(root: HTMLElement) {
     }
   }
 
+  // ----- tabs with embedded panels -----
+
+  type WebTab = { id: string; name: string; kind: string };
+  const tablist = root.querySelector<HTMLElement>(".web-tablist")!;
+  const slot = root.querySelector<HTMLElement>(".web-slot")!;
+  const home = root.querySelector<HTMLElement>(".web-home")!;
+  const nav = root.querySelector<HTMLElement>(".web-nav")!;
+  const homeTab = root.querySelector<HTMLElement>("[data-t=home]")!;
+  let tabs: WebTab[] = (() => { try { return JSON.parse(localStorage.getItem("opsdeck.web.tabs") ?? "[]"); } catch { return []; } })();
+  let active = "home";
+  let overlays = 0;
+  const saveTabs = () => { try { localStorage.setItem("opsdeck.web.tabs", JSON.stringify(tabs)); } catch { /* ignore */ } };
+
+  /** The panel is a native webview on top of this page: only show it while nothing should cover it. */
+  const visible = () => !root.hidden && active !== "home" && overlays === 0;
+
+  function drawTabs() {
+    tablist.innerHTML = tabs.map((t) => `<div class="tab ${t.id === active ? "active" : ""}" data-t="${esc(t.id)}">
+      <span class="dot kind-${esc(t.kind)}"></span><span class="label">${esc(t.name)}</span><span class="x" title="Закрыть">×</span></div>`).join("");
+    homeTab.classList.toggle("active", active === "home");
+    nav.hidden = active === "home";
+  }
+
+  let placing = false;
+  function place() {
+    if (placing) return;
+    placing = true;
+    requestAnimationFrame(async () => {
+      placing = false;
+      if (!visible()) return;
+      const r = slot.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height } })
+        .catch((e) => { toast(String(e), "err"); });
+    });
+  }
+
+  function activate(id: string) {
+    active = id;
+    slot.hidden = id === "home";
+    home.hidden = id !== "home";
+    drawTabs();
+    invoke("web_embed_hide", { id: null }).finally(place);
+  }
+
+  function openTab(c: Connector) {
+    if (!tabs.some((t) => t.id === c.id)) {
+      tabs.push({ id: c.id, name: c.name, kind: c.kind });
+      saveTabs();
+    }
+    window.dispatchEvent(new CustomEvent("show-view", { detail: "web" }));
+    activate(c.id);
+  }
+
+  function closeTab(id: string) {
+    const i = tabs.findIndex((t) => t.id === id);
+    if (i < 0) return;
+    tabs.splice(i, 1);
+    saveTabs();
+    invoke("web_embed_close", { id }).catch(() => {});
+    if (active === id) activate(tabs[Math.max(0, i - 1)]?.id ?? "home");
+    else drawTabs();
+  }
+
+  root.querySelector<HTMLElement>(".web-tabs")!.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const tab = t.closest<HTMLElement>("[data-t]");
+    if (t.closest(".x") && tab) return closeTab(tab.dataset.t!);
+    if (tab) return activate(tab.dataset.t!);
+    const n = t.closest<HTMLElement>("[data-n]")?.dataset.n;
+    if (!n || active === "home") return;
+    if (n === "window") {
+      const id = active;
+      closeTab(id);
+      invoke("connector_open", { id }).catch((err) => toast(String(err), "err"));
+    } else {
+      invoke("web_embed_nav", { id: active, action: n }).catch((err) => toast(String(err), "err"));
+    }
+  });
+
+  new ResizeObserver(place).observe(slot);
+  window.addEventListener("resize", place);
+  window.addEventListener("view-shown", (e) => {
+    if ((e as CustomEvent).detail === "web") { place(); if (active === "home") refresh(); }
+    else invoke("web_embed_hide", { id: null }).catch(() => {});
+  });
+  window.addEventListener("overlay-open", () => { overlays++; invoke("web_embed_hide", { id: null }).catch(() => {}); });
+  window.addEventListener("overlay-close", () => { overlays = Math.max(0, overlays - 1); place(); });
+
   root.querySelector<HTMLElement>("[data-act=add]")!.onclick = () => openDialog(null);
-  registerProvider(async () => (await invoke<Connector[]>("connectors_list")).map((c) => ({
-    group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url,
-    run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); },
-  })));
-  refresh();
+  registerProvider(async () => (await invoke<Connector[]>("connectors_list")).flatMap((c) => [
+    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
+    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,
+      run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); } },
+  ]));
+  drawTabs();
+  refresh().then(async () => {
+    // drop remembered tabs whose connectors no longer exist
+    const ids = new Set((await invoke<Connector[]>("connectors_list").catch(() => [])).map((c) => c.id));
+    tabs = tabs.filter((t) => ids.has(t.id));
+    saveTabs();
+    drawTabs();
+  });
 }

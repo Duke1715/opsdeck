@@ -1,4 +1,5 @@
 mod connectors;
+mod embed;
 mod ide;
 mod k8s;
 mod keepass;
@@ -21,6 +22,7 @@ pub fn run() {
         .setup(|app| {
             keepass::spawn_autolock(app.handle().clone());
             ide::start(app.handle().clone());
+            embed::install(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,6 +36,10 @@ pub fn run() {
             connectors::connector_save,
             connectors::connector_delete,
             connectors::connector_open,
+            embed::web_embed_show,
+            embed::web_embed_hide,
+            embed::web_embed_close,
+            embed::web_embed_nav,
             k8s::k8s_contexts,
             k8s::k8s_import,
             k8s::k8s_remove_source,

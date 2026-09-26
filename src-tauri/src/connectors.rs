@@ -78,14 +78,9 @@ pub fn connector_delete(id: String) -> Result<(), String> {
     store::save_json(FILE, &list)
 }
 
-#[tauri::command]
-pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<(), String> {
+/// Connector, its start URL and (if credentials are configured) the auto-login init script.
+pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<String>), String> {
     let mut c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;
-    let label = format!("conn-{}", c.id);
-    if let Some(w) = app.get_webview_window(&label) {
-        return w.set_focus().map_err(|e| e.to_string());
-    }
-
     let url = Url::parse(&c.url).map_err(|e| e.to_string())?;
     let secret = match c.auth.as_str() {
         "none" => String::new(),
@@ -99,12 +94,23 @@ pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Re
         }
         _ => store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
     };
+    let script = (!secret.is_empty()).then(|| login_script(&c, &url, &secret));
+    Ok((c, url, script))
+}
 
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.clone()))
+/// Opens the connector in its own window.
+#[tauri::command]
+pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<(), String> {
+    let label = format!("conn-{id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let (c, url, script) = prepare(&kp, &id)?;
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title(format!("{} — OpsDeck", c.name))
         .inner_size(1360.0, 860.0);
-    if !secret.is_empty() {
-        builder = builder.initialization_script(&login_script(&c, &url, &secret));
+    if let Some(js) = script {
+        builder = builder.initialization_script(&js);
     }
     builder.build().map_err(|e| e.to_string())?;
     Ok(())

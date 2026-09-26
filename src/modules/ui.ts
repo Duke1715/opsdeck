@@ -24,8 +24,10 @@ export function ask(
       </div>
     </form>`;
   document.body.appendChild(dlg);
+  overlay(true);
   return new Promise((resolve) => {
     dlg.addEventListener("close", () => {
+      overlay(false);
       const input = dlg.querySelector("input");
       resolve(dlg.returnValue === "ok" ? (input?.value.trim() ?? "") : null);
       dlg.remove();
@@ -33,6 +35,11 @@ export function ask(
     dlg.showModal();
     dlg.querySelector<HTMLInputElement>("input")?.select();
   });
+}
+
+/** Modal UI is about to cover the page: embedded web panels (native views on top) hide meanwhile. */
+export function overlay(open: boolean) {
+  window.dispatchEvent(new Event(open ? "overlay-open" : "overlay-close"));
 }
 
 export function toast(text: string, kind: "ok" | "err" = "ok") {

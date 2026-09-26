@@ -1,4 +1,4 @@
-import { esc } from "./ui";
+import { esc, overlay } from "./ui";
 
 /** One entry of the command palette. Modules contribute entries through providers. */
 export type PaletteItem = { group: string; title: string; hint?: string; run: () => void | Promise<void> };
@@ -36,11 +36,12 @@ export async function openPalette() {
       <div class="palette-foot muted">↑↓ выбрать · Enter выполнить · Esc закрыть</div>
     </div>`;
   document.body.appendChild(el);
+  overlay(true);
   const input = el.querySelector<HTMLInputElement>("input")!;
   const list = el.querySelector<HTMLElement>(".palette-list")!;
   input.focus();
 
-  const close = () => { el?.remove(); el = null; };
+  const close = () => { if (el) overlay(false); el?.remove(); el = null; };
   el.addEventListener("mousedown", (e) => { if (e.target === el) close(); });
 
   const results = await Promise.all(providers.map(async (p) => { try { return await p(); } catch { return []; } }));
