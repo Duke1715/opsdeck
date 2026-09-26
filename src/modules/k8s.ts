@@ -194,12 +194,21 @@ export function mountK8s(root: HTMLElement) {
     </div>
     <dialog class="import-dialog">
       <form method="dialog">
-        <h3>Импорт kubeconfig</h3>
-        <p class="muted">Вставьте содержимое kubeconfig или просто перетащите файл(ы) в окно на этой вкладке. Файлы копируются в ~/.config/opsdeck/kubeconfigs с правами 600.</p>
-        <label>Имя <input name="name" placeholder="prod-cluster" spellcheck="false" /></label>
-        <label>YAML <textarea name="yaml" rows="12" spellcheck="false" placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: …"></textarea></label>
+        <h3>Добавить кластеры в OpsDeck</h3>
+        <p class="muted">OpsDeck хранит свои копии kubeconfig в ~/.config/opsdeck/kubeconfigs (права 600) и не меняет ваш ~/.kube/config — обычный kubectl работает как раньше.</p>
+        <div class="imp-section">
+          <div class="side-head small">Из ~/.kube/config</div>
+          <div class="sys-list"><p class="muted">загрузка…</p></div>
+          <div class="actions"><button value="sys" class="primary" formnovalidate>Скопировать выбранные</button></div>
+        </div>
+        <details class="imp-section">
+          <summary class="side-head small">Вставить YAML или перетащить файл в окно</summary>
+          <label>Имя <input name="name" placeholder="prod-cluster" spellcheck="false" /></label>
+          <label>YAML <textarea name="yaml" rows="10" spellcheck="false" placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: …"></textarea></label>
+          <div class="actions"><button value="ok" class="primary" formnovalidate>Импортировать YAML</button></div>
+        </details>
         <p class="err form-err"></p>
-        <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="ok" class="primary">Импортировать</button></div>
+        <div class="actions"><button value="cancel" formnovalidate>Закрыть</button></div>
       </form>
     </dialog>`;
 
@@ -293,13 +302,21 @@ export function mountK8s(root: HTMLElement) {
     prefs = await invoke<Prefs>("k8s_prefs_get").catch(() => ({ hidden: [], readonly: [] }));
     const visible = contexts.filter((c) => !prefs.hidden.includes(ctxKey(c)));
     const hidden = contexts.filter((c) => prefs.hidden.includes(ctxKey(c)));
-    for (const c of visible) groups.set(c.file, [...(groups.get(c.file) ?? []), c]);
-    ctxList.innerHTML = contexts.length ? "" : `<p class="muted pad">Нет kubeconfig. Нажмите ＋ или перетащите файл.</p>`;
+    // OpsDeck's store keeps one file per context: show them as one group
+    for (const c of visible) {
+      const key = c.source === "opsdeck" ? "opsdeck" : c.file;
+      groups.set(key, [...(groups.get(key) ?? []), c]);
+    }
+    ctxList.innerHTML = contexts.length ? "" : `<div class="pad empty-k8s"><p class="muted">В OpsDeck пока нет кластеров.</p>
+      <button class="primary" data-act="import-empty">Добавить из ~/.kube/config</button></div>`;
+    ctxList.querySelector<HTMLElement>("[data-act=import-empty]")?.addEventListener("click", () => openImport());
     for (const [file, list] of groups) {
       const g = document.createElement("div");
       g.className = "ctx-group";
-      g.innerHTML = `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge">${esc(list[0].source)}</span>
-        ${list[0].source === "imported" ? `<button class="icon del" title="Удалить импортированный файл">×</button>` : ""}</div>`;
+      const own = file === "opsdeck";
+      g.innerHTML = own
+        ? `<div class="ctx-file" title="~/.config/opsdeck/kubeconfigs"><span>OpsDeck</span></div>`
+        : `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge warn" title="Общий kubeconfig: изменения затронут и обычный kubectl">общий</span></div>`;
       g.querySelector<HTMLElement>(".del")?.addEventListener("click", async () => {
         if ((await ask("Удалить kubeconfig", `Удалить импортированный файл «${list[0].label}»?`, { ok: "Удалить", danger: true })) === null) return;
         await invoke("k8s_remove_source", { file }).catch((e) => toast(String(e), "err"));
@@ -333,6 +350,15 @@ export function mountK8s(root: HTMLElement) {
       render();
     }
     syncReadonly();
+    if (ctx && !contexts.some((c) => ctxKey(c) === ctxKey(ctx!))) {
+      // the selected context is gone (deleted, or system configs switched off)
+      ctx = null;
+      $(".ctx-title").textContent = "выберите контекст";
+      $(".ctx-title").classList.add("muted");
+      items = [];
+      closeDrawer();
+      render();
+    }
     if (!ctx) {
       const last = store.get("ctx");
       const pick = contexts.find((c) => `${c.file}|${c.context}` === last);
@@ -668,9 +694,40 @@ export function mountK8s(root: HTMLElement) {
 
   const dialog = $<HTMLDialogElement>(".import-dialog");
   const dform = dialog.querySelector("form")!;
-  $("[data-act=import]").onclick = () => { dform.reset(); dform.querySelector<HTMLElement>(".form-err")!.textContent = ""; dialog.showModal(); };
+  const sysList = dialog.querySelector<HTMLElement>(".sys-list")!;
+  let sysCtx: CtxInfo[] = [];
+  async function openImport() {
+    dform.reset();
+    dform.querySelector<HTMLElement>(".form-err")!.textContent = "";
+    dialog.showModal();
+    sysCtx = await invoke<CtxInfo[]>("k8s_system_contexts").catch(() => []);
+    // already copied = same context name and API server in OpsDeck's store
+    const have = new Set(contexts.filter((c) => c.source === "opsdeck").map((c) => `${c.context}|${c.server}`));
+    sysList.innerHTML = sysCtx.length ? sysCtx.map((c, i) => {
+      const dup = have.has(`${c.context}|${c.server}`);
+      return `<label class="sys-item"><input type="checkbox" data-i="${i}" ${dup ? "disabled" : ""} />
+        <span class="ctx-name">${esc(c.context)}</span><span class="muted">${esc(c.server.replace(/^https?:\/\//, ""))}</span>
+        ${dup ? `<span class="badge">уже есть</span>` : ""}</label>`;
+    }).join("") : `<p class="muted">В ~/.kube/config контекстов нет.</p>`;
+  }
+  $("[data-act=import]").onclick = openImport;
   dform.addEventListener("submit", async (e) => {
-    if ((e.submitter as HTMLButtonElement | null)?.value !== "ok") return;
+    const act = (e.submitter as HTMLButtonElement | null)?.value;
+    if (act === "sys") {
+      e.preventDefault();
+      const chosen = [...sysList.querySelectorAll<HTMLInputElement>("input:checked")].map((cb) => sysCtx[Number(cb.dataset.i)]);
+      if (!chosen.length) { dform.querySelector<HTMLElement>(".form-err")!.textContent = "Отметьте хотя бы один контекст"; return; }
+      try {
+        const byFile = new Map<string, string[]>();
+        chosen.forEach((c) => byFile.set(c.file, [...(byFile.get(c.file) ?? []), c.context]));
+        for (const [file, names] of byFile) await invoke("k8s_import_contexts", { file, contexts: names });
+        dialog.close();
+        toast(`Скопировано в OpsDeck: ${chosen.map((c) => c.context).join(", ")}`);
+        loadContexts();
+      } catch (err) { dform.querySelector<HTMLElement>(".form-err")!.textContent = String(err); }
+      return;
+    }
+    if (act !== "ok") return;
     e.preventDefault();
     const f = (n: string) => (dform.elements.namedItem(n) as HTMLInputElement).value;
     try {
@@ -719,6 +776,8 @@ export function mountK8s(root: HTMLElement) {
       ...(ctx && !isReadonly() ? [{ group: "Kubernetes", title: `Терминал kubectl: ${ctx.context}`, run: () => $("[data-act=shell]").click() }] : []),
     ];
   });
+
+  window.addEventListener("settings-changed", () => loadContexts());
 
   renderKinds();
   render();

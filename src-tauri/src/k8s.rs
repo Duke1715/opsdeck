@@ -44,34 +44,67 @@ fn err(e: impl std::fmt::Display) -> String {
 fn imported_dir() -> Result<PathBuf, String> {
     let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("kubeconfigs");
     fs::create_dir_all(&dir).map_err(err)?;
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
     Ok(dir)
 }
 
-fn sources() -> Vec<(PathBuf, &'static str)> {
+/// The shared kubeconfig files kubectl uses outside OpsDeck: $KUBECONFIG entries or ~/.kube/config.
+fn system_files() -> Vec<(PathBuf, &'static str)> {
     let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
-    let mut push = |p: PathBuf, kind| {
-        if p.is_file() && !out.iter().any(|(x, _)| *x == p) {
-            out.push((p, kind));
-        }
-    };
+    // OpsDeck's own terminals get KUBECONFIG pointing at the store: don't treat that as "system"
+    let own = imported_dir().ok();
     if let Ok(env) = std::env::var("KUBECONFIG") {
-        env.split(':').filter(|s| !s.is_empty()).for_each(|s| push(s.into(), "env"));
+        for p in env.split(':').filter(|s| !s.is_empty()).map(PathBuf::from) {
+            if p.is_file() && own.as_deref() != p.parent() && !out.iter().any(|(x, _)| *x == p) {
+                out.push((p, "env"));
+            }
+        }
     }
-    if let Some(home) = dirs::home_dir() {
-        push(home.join(".kube/config"), "kube");
-    }
-    if let Ok(dir) = imported_dir() {
-        let mut files: Vec<_> = fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml")))
-            .collect();
-        files.sort();
-        files.into_iter().for_each(|p| push(p, "imported"));
+    if let Some(p) = dirs::home_dir().map(|h| h.join(".kube/config")).filter(|p| p.is_file()) {
+        if !out.iter().any(|(x, _)| *x == p) {
+            out.push((p, "kube"));
+        }
     }
     out
+}
+
+/// Kubeconfig files in OpsDeck's own store (~/.config/opsdeck/kubeconfigs), sorted.
+fn store_files() -> Vec<PathBuf> {
+    let Ok(dir) = imported_dir() else { return Vec::new() };
+    let mut files: Vec<_> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml")))
+        .collect();
+    files.sort();
+    files
+}
+
+fn sources() -> Vec<(PathBuf, &'static str)> {
+    let mut out = if crate::settings::load().k8s_include_system { system_files() } else { Vec::new() };
+    out.extend(store_files().into_iter().map(|p| (p, "opsdeck")));
+    out
+}
+
+/// KUBECONFIG for terminals started by OpsDeck: only OpsDeck's store, so kubectl/helm/claude
+/// there never touch the shared ~/.kube/config. None when the user opted into system configs.
+pub fn terminal_kubeconfig() -> Option<String> {
+    if crate::settings::load().k8s_include_system {
+        return None;
+    }
+    let files = store_files();
+    if files.is_empty() {
+        // an empty config keeps kubectl from falling back to ~/.kube/config
+        let empty = crate::store::config_dir().ok()?.join("empty-kubeconfig");
+        if !empty.exists() {
+            write_private(&empty, "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n").ok()?;
+        }
+        return Some(empty.to_string_lossy().into_owned());
+    }
+    let joined: Vec<String> = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    Some(joined.join(":"))
 }
 
 fn read_yaml(path: &Path) -> Result<Value, String> {
@@ -98,8 +131,18 @@ pub struct CtxInfo {
 
 #[tauri::command]
 pub fn k8s_contexts() -> Vec<CtxInfo> {
+    contexts_of(sources())
+}
+
+/// Contexts of the shared kubeconfig, for the import dialog.
+#[tauri::command]
+pub fn k8s_system_contexts() -> Vec<CtxInfo> {
+    contexts_of(system_files())
+}
+
+fn contexts_of(files: Vec<(PathBuf, &'static str)>) -> Vec<CtxInfo> {
     let mut out = Vec::new();
-    for (path, source) in sources() {
+    for (path, source) in files {
         let Ok(cfg) = read_yaml(&path) else { continue };
         let current = cfg["current-context"].as_str().unwrap_or_default();
         let label = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -227,8 +270,43 @@ fn delete_context_in_file(ctx: &Ctx) -> Result<String, String> {
 #[tauri::command]
 pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, String> {
     let src = PathBuf::from(&ctx.file);
-    let cfg = read_yaml(&src)?;
-    let mut c = named(&cfg, "contexts", &ctx.context).ok_or("context not found")?.clone();
+    let out = single_context(&src, &ctx.context, namespace.as_deref())?;
+    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("run");
+    fs::create_dir_all(&dir).map_err(err)?;
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
+    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let path = dir.join(format!("{}.yaml", sanitize(&format!("{stem}-{}", ctx.context))));
+    write_private(&path, &serde_yaml_ng::to_string(&out).map_err(err)?)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Copies the chosen contexts of a shared kubeconfig into OpsDeck's store, one file per context.
+/// Returns the created file names.
+#[tauri::command]
+pub fn k8s_import_contexts(file: String, contexts: Vec<String>) -> Result<Vec<String>, String> {
+    let src = PathBuf::from(&file);
+    let dir = imported_dir()?;
+    let mut created = Vec::new();
+    for name in contexts {
+        let cfg = single_context(&src, &name, None)?;
+        let base = sanitize(&name);
+        let mut target = dir.join(format!("{base}.yaml"));
+        let mut n = 2;
+        while target.exists() {
+            target = dir.join(format!("{base}-{n}.yaml"));
+            n += 1;
+        }
+        write_private(&target, &serde_yaml_ng::to_string(&cfg).map_err(err)?)?;
+        created.push(target.file_name().unwrap_or_default().to_string_lossy().into_owned());
+    }
+    Ok(created)
+}
+
+/// A standalone kubeconfig with one context and the cluster/user it references.
+/// Relative cert paths are made absolute so the result works from any location.
+fn single_context(src: &Path, context: &str, namespace: Option<&str>) -> Result<Value, String> {
+    let cfg = read_yaml(src)?;
+    let mut c = named(&cfg, "contexts", context).ok_or_else(|| format!("контекст {context} не найден"))?.clone();
     if let Some(ns) = namespace.filter(|n| !n.is_empty()) {
         c["context"]["namespace"] = json!(ns);
     }
@@ -248,21 +326,14 @@ pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, S
         .cloned()
         .map(|v| absolutize(v, "user", &["client-certificate", "client-key"]));
 
-    let out = json!({
+    Ok(json!({
         "apiVersion": "v1",
         "kind": "Config",
-        "current-context": ctx.context,
+        "current-context": context,
         "contexts": [c],
         "clusters": cluster.into_iter().collect::<Vec<_>>(),
         "users": user.into_iter().collect::<Vec<_>>(),
-    });
-    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("run");
-    fs::create_dir_all(&dir).map_err(err)?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
-    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let path = dir.join(format!("{}.yaml", sanitize(&format!("{stem}-{}", ctx.context))));
-    write_private(&path, &serde_yaml_ng::to_string(&out).map_err(err)?)?;
-    Ok(path.to_string_lossy().into_owned())
+    }))
 }
 
 // ---------- per-context preferences ----------
@@ -548,4 +619,5 @@ pub fn k8s_logs_stop(state: State<K8sState>, id: String) {
         let _ = tx.send(());
     }
 }
+
 

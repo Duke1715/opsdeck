@@ -49,6 +49,8 @@ pub fn run() {
             k8s::k8s_prefs_get,
             k8s::k8s_prefs_set,
             k8s::k8s_delete_context,
+            k8s::k8s_system_contexts,
+            k8s::k8s_import_contexts,
             settings::settings_get,
             settings::settings_set,
             settings::settings_detect,

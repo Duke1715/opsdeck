@@ -14,6 +14,8 @@ pub struct Settings {
     pub keepass_lock_minutes: u64,
     pub obsidian_vault: String,
     pub winbox_path: String,
+    /// Also list contexts from ~/.kube/config and $KUBECONFIG (off: OpsDeck uses only its own store).
+    pub k8s_include_system: bool,
 }
 
 impl Default for Settings {
@@ -24,6 +26,7 @@ impl Default for Settings {
             keepass_lock_minutes: 15,
             obsidian_vault: String::new(),
             winbox_path: String::new(),
+            k8s_include_system: false,
         }
     }
 }

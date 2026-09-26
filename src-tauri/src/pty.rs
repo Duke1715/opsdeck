@@ -64,6 +64,9 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         cmd.env("CLAUDE_CODE_SSE_PORT", port.to_string());
         cmd.env("ENABLE_IDE_INTEGRATION", "true");
     }
+    if let Some(kc) = crate::k8s::terminal_kubeconfig() {
+        cmd.env("KUBECONFIG", kc);
+    }
     for (k, v) in req.env.unwrap_or_default() {
         cmd.env(k, v);
     }

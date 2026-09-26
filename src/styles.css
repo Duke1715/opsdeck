@@ -353,3 +353,14 @@ dialog.mt-dialog { width: 560px; }
 .sn-cmd { font-family: "JetBrains Mono", monospace; font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sn-acts { text-align: right; width: 1%; white-space: nowrap; }
 .settings code { background: var(--panel-2); padding: 0 4px; border-radius: 4px; }
+
+/* k8s import */
+.imp-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.imp-section summary { cursor: pointer; list-style: none; padding: 0; }
+.sys-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
+.sys-item { flex-direction: row !important; align-items: center; gap: 8px !important; padding: 4px 2px; color: var(--text) !important; cursor: pointer; }
+.sys-item .muted { font-size: 12px; margin-left: auto; }
+.badge.warn { color: #e6c07b; border-color: #e6c07b55; }
+.empty-k8s { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.settings label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+.settings .hint { margin: 0; font-size: 12px; }
