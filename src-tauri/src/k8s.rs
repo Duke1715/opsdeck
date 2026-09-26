@@ -425,10 +425,20 @@ const KINDS: &[(&str, &str, &str, &str, bool)] = &[
     ("argoproj.io", "v1alpha1", "Application", "applications", true),
 ];
 
-fn api(client: Client, kind: &str, ns: Option<&str>) -> Result<Api<DynamicObject>, String> {
+/// Built-in kinds by plural, or custom resources as "crd:<group>/<version>/<plural>/<Kind>/<namespaced>".
+fn resource(kind: &str) -> Result<(ApiResource, bool), String> {
+    if let Some(rest) = kind.strip_prefix("crd:") {
+        let p: Vec<&str> = rest.split('/').collect();
+        let [g, v, plural, k, namespaced] = p[..] else { return Err(format!("bad resource id {kind}")) };
+        return Ok((ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk(g, v, k), plural), namespaced == "true"));
+    }
     let &(g, v, k, plural, namespaced) =
         KINDS.iter().find(|x| x.3 == kind).ok_or_else(|| format!("unknown kind {kind}"))?;
-    let ar = ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk(g, v, k), plural);
+    Ok((ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk(g, v, k), plural), namespaced))
+}
+
+fn api(client: Client, kind: &str, ns: Option<&str>) -> Result<Api<DynamicObject>, String> {
+    let (ar, namespaced) = resource(kind)?;
     Ok(match (namespaced, ns.filter(|n| !n.is_empty())) {
         (true, Some(ns)) => Api::namespaced_with(client, ns, &ar),
         _ => Api::all_with(client, &ar),
@@ -1067,4 +1077,68 @@ pub async fn k8s_argo_action(state: State<'_, K8sState>, ctx: Ctx, namespace: St
 }
 
 
+
+
+// ---------- custom resources & object events ----------
+
+#[derive(Serialize)]
+pub struct CrdInfo {
+    /// resource id usable with every k8s_* command ("crd:group/version/plural/Kind/namespaced")
+    id: String,
+    group: String,
+    version: String,
+    kind: String,
+    plural: String,
+    namespaced: bool,
+    /// additionalPrinterColumns (priority 0): what `kubectl get` shows
+    columns: Vec<Value>,
+}
+
+/// Custom resource types installed in the cluster, from CustomResourceDefinitions.
+#[tauri::command]
+pub async fn k8s_crds(state: State<'_, K8sState>, ctx: Ctx) -> Result<Vec<CrdInfo>, String> {
+    let c = client(&state, &ctx).await?;
+    let ar = ApiResource::from_gvk_with_plural(
+        &GroupVersionKind::gvk("apiextensions.k8s.io", "v1", "CustomResourceDefinition"),
+        "customresourcedefinitions",
+    );
+    let list = timed(Api::<DynamicObject>::all_with(c, &ar).list(&ListParams::default())).await?;
+    let mut out: Vec<CrdInfo> = list
+        .items
+        .iter()
+        .filter_map(|o| {
+            let spec = &o.data["spec"];
+            let versions = spec["versions"].as_array()?;
+            // the storage version is always served; otherwise take the first served one
+            let ver = versions.iter().find(|v| v["storage"] == true && v["served"] == true)
+                .or_else(|| versions.iter().find(|v| v["served"] == true))?;
+            let (group, version) = (spec["group"].as_str()?, ver["name"].as_str()?);
+            let (kind, plural) = (spec["names"]["kind"].as_str()?, spec["names"]["plural"].as_str()?);
+            let namespaced = spec["scope"] == "Namespaced";
+            let columns = ver["additionalPrinterColumns"].as_array().into_iter().flatten()
+                .filter(|c| c["priority"].as_i64().unwrap_or(0) == 0)
+                .cloned()
+                .collect();
+            Some(CrdInfo {
+                id: format!("crd:{group}/{version}/{plural}/{kind}/{namespaced}"),
+                group: group.into(), version: version.into(), kind: kind.into(), plural: plural.into(),
+                namespaced, columns,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.group, &a.kind).cmp(&(&b.group, &b.kind)));
+    Ok(out)
+}
+
+/// Events about one object (by uid), newest first.
+#[tauri::command]
+pub async fn k8s_object_events(state: State<'_, K8sState>, ctx: Ctx, namespace: Option<String>, uid: String) -> Result<Vec<Value>, String> {
+    let c = client(&state, &ctx).await?;
+    let events = api(c, "events", namespace.as_deref())?;
+    let lp = ListParams::default().fields(&format!("involvedObject.uid={uid}"));
+    let mut items: Vec<Value> = timed(events.list(&lp)).await?.items.into_iter().filter_map(|o| serde_json::to_value(o).ok()).collect();
+    let when = |e: &Value| e["lastTimestamp"].as_str().or(e["eventTime"].as_str()).or(e["metadata"]["creationTimestamp"].as_str()).unwrap_or_default().to_string();
+    items.sort_by_key(|e| std::cmp::Reverse(when(e)));
+    Ok(items)
+}
 

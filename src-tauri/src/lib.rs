@@ -58,6 +58,8 @@ pub fn run() {
             k8s::k8s_helm_releases,
             k8s::k8s_helm_release,
             k8s::k8s_argo_action,
+            k8s::k8s_crds,
+            k8s::k8s_object_events,
             settings::settings_get,
             settings::settings_set,
             settings::settings_detect,

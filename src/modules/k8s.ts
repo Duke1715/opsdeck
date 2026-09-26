@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ask, esc, toast } from "./ui";
+import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
 import { registerProvider } from "./palette";
 import type { OpenTerminalDetail } from "./terminal";
 
@@ -19,17 +20,6 @@ type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => strin
 // ---------- column helpers ----------
 
 const ts = (s?: string) => (s ? Date.parse(s) : 0);
-function age(s?: string): string {
-  if (!s) return "";
-  const sec = Math.max(0, Math.floor((Date.now() - Date.parse(s)) / 1000));
-  if (sec < 120) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  if (m < 120) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return d < 730 ? `${d}d` : `${Math.floor(d / 365)}y`;
-}
 const name: Col = { h: "Имя", v: (o) => o.metadata.name };
 const ns: Col = { h: "Namespace", v: (o) => o.metadata.namespace ?? "" };
 const ageCol: Col = { h: "Возраст", v: (o) => age(o.metadata.creationTimestamp), sort: (o) => -ts(o.metadata.creationTimestamp) };
@@ -48,12 +38,6 @@ function podStatus(p: Obj): string {
     else if (c.state?.terminated?.reason && !c.ready) reason = c.state.terminated.reason;
   }
   return reason;
-}
-function statusClass(s: string): string {
-  if (/^(Running|Active|Bound|Ready|Available|Normal|True)$/.test(s)) return "ok";
-  if (/^(Succeeded|Completed)$/.test(s)) return "muted";
-  if (/(Pending|Creating|Terminating|Init:|Unknown|Released)/.test(s)) return "warn";
-  return "bad";
 }
 const ready = (have?: number, want?: number) => `${have ?? 0}/${want ?? 0}`;
 const readyCls = (have?: number, want?: number) => ((have ?? 0) >= (want ?? 0) ? "ok" : "warn");
@@ -84,7 +68,28 @@ function memBytes(q?: string): number {
 }
 const fmtMem = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)}Gi` : `${Math.round(b / 1024 ** 2)}Mi`);
 
-const KINDS: { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm" }[] = [
+type KindDef = { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm"; crd?: boolean };
+type CrdInfo = { id: string; group: string; version: string; kind: string; plural: string; namespaced: boolean;
+  columns: { name: string; type: string; jsonPath: string }[] };
+
+/** Table definition for a custom resource from its printer columns (what `kubectl get` shows). */
+function crdKind(c: CrdInfo): KindDef {
+  const cols: Col[] = [name];
+  if (c.namespaced) cols.push(ns);
+  for (const pc of c.columns) {
+    if (pc.jsonPath === ".metadata.creationTimestamp") continue; // the age column is always added
+    cols.push(pc.type === "date"
+      ? { h: pc.name, v: (o) => age(jsonPath(o, pc.jsonPath)), sort: (o) => -ts(jsonPath(o, pc.jsonPath)) }
+      : { h: pc.name, v: (o) => jsonPath(o, pc.jsonPath), cls: (o) => {
+        const v = jsonPath(o, pc.jsonPath);
+        return /status|ready|health|sync|phase|state/i.test(pc.name) && v ? statusClass(v === "True" ? "Ready" : v) : "";
+      } });
+  }
+  cols.push(ageCol);
+  return { id: c.id, label: c.kind, group: c.group, namespaced: c.namespaced, cols, crd: true };
+}
+
+const KINDS: KindDef[] = [
   { id: "pods", label: "Pods", group: "Workloads", namespaced: true, cols: [
     name, ns,
     { h: "Ready", v: (o) => { const cs = o.status?.containerStatuses ?? []; return `${cs.filter((c: Obj) => c.ready).length}/${o.spec.containers.length}`; } },
@@ -301,6 +306,8 @@ export function mountK8s(root: HTMLElement) {
 
   let contexts: CtxInfo[] = [];
   let ctx: CtxInfo | null = null;
+  let crdKinds: KindDef[] = [];
+  const allKinds = () => [...KINDS, ...crdKinds];
   let kind = KINDS.find((k) => k.id === store.get("kind")) ?? KINDS[0];
   let items: Obj[] = [];
   let sortCol = 0, sortDir = 1;
@@ -460,7 +467,7 @@ export function mountK8s(root: HTMLElement) {
     closeDrawer();
     items = [];
     render();
-    await loadNamespaces();
+    await Promise.all([loadNamespaces(), loadCrds()]);
     usage.clear();
     startWatch();
     loadMetrics();
@@ -497,7 +504,31 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- kinds -----
 
+  async function loadCrds() {
+    const list = await invoke<CrdInfo[]>("k8s_crds", { ctx: ref() }).catch(() => [] as CrdInfo[]);
+    // Argo Applications already have a hand-made table
+    crdKinds = list.filter((c) => !(c.group === "argoproj.io" && c.kind === "Application")).map(crdKind);
+    const saved = store.get("kind");
+    const restored = saved?.startsWith("crd:") ? crdKinds.find((k) => k.id === saved) : undefined;
+    if (restored) kind = restored;
+    else if (kind.crd && !crdKinds.some((k) => k.id === kind.id)) kind = KINDS[0]; // CRD missing in this cluster
+    renderKinds();
+  }
+
+  function selectKind(k: KindDef) {
+    kind = k;
+    store.set("kind", k.id);
+    sortCol = 0; sortDir = 1;
+    closeDrawer();
+    items = [];
+    renderKinds();
+    render();
+    startWatch();
+    loadMetrics();
+  }
+
   function renderKinds() {
+    const crdFilter = kindList.querySelector<HTMLInputElement>(".crd-filter")?.value ?? "";
     kindList.innerHTML = "";
     let group = "";
     for (const k of KINDS) {
@@ -509,18 +540,43 @@ export function mountK8s(root: HTMLElement) {
       b.className = "kind-item";
       b.classList.toggle("active", k === kind);
       b.textContent = k.label;
-      b.onclick = () => {
-        kind = k;
-        store.set("kind", k.id);
-        sortCol = 0; sortDir = 1;
-        closeDrawer();
-        items = [];
-        renderKinds();
-        render();
-        startWatch();
-        loadMetrics();
-      };
+      b.onclick = () => selectKind(k);
       kindList.appendChild(b);
+    }
+    if (crdKinds.length) {
+      kindList.insertAdjacentHTML("beforeend", `<div class="side-head small">Custom resources <span class="muted">${crdKinds.length}</span></div>
+        <input class="crd-filter" placeholder="фильтр CRD…" spellcheck="false" />`);
+      const filter = kindList.querySelector<HTMLInputElement>(".crd-filter")!;
+      filter.value = crdFilter;
+      const q = crdFilter.trim().toLowerCase();
+      const openGroups = new Set<string>(JSON.parse(store.get("crdOpen") ?? "[]") as string[]);
+      const byGroup = new Map<string, KindDef[]>();
+      for (const k of crdKinds) {
+        if (q && !`${k.label} ${k.group}`.toLowerCase().includes(q)) continue;
+        byGroup.set(k.group, [...(byGroup.get(k.group) ?? []), k]);
+      }
+      for (const [group, ks] of byGroup) {
+        const d = document.createElement("details");
+        d.className = "crd-group";
+        d.open = !!q || openGroups.has(group) || ks.includes(kind);
+        d.innerHTML = `<summary title="${esc(group)}">${esc(group)} <span class="muted">${ks.length}</span></summary>`;
+        d.addEventListener("toggle", () => {
+          d.open ? openGroups.add(group) : openGroups.delete(group);
+          store.set("crdOpen", JSON.stringify([...openGroups]));
+        });
+        for (const k of ks) {
+          const b = document.createElement("button");
+          b.className = "kind-item crd-item";
+          b.classList.toggle("active", k.id === kind.id);
+          b.textContent = k.label;
+          b.title = `${k.label}.${k.group}`;
+          b.onclick = () => selectKind(k);
+          d.appendChild(b);
+        }
+        kindList.appendChild(d);
+      }
+      let t = 0;
+      filter.oninput = () => { clearTimeout(t); t = window.setTimeout(() => { renderKinds(); kindList.querySelector<HTMLInputElement>(".crd-filter")?.focus(); }, 150); };
     }
     nsSel.disabled = !kind.namespaced;
   }
@@ -655,6 +711,7 @@ export function mountK8s(root: HTMLElement) {
       return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""}">${cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${esc(v)}</td>`).join("")}</tr>`;
     }).join("");
     countEl.textContent = ctx ? `${rows.length}${rows.length !== items.length ? ` из ${items.length}` : ""}` : "";
+    syncDetails();
   }
 
   thead.onclick = (e) => {
@@ -696,6 +753,7 @@ export function mountK8s(root: HTMLElement) {
       : [["YAML", () => showYaml(o)]];
     if (kind.id === "pods") tabs.unshift(["Логи", () => showLogs(o)]);
     if (["deployments", "statefulsets", "daemonsets", "replicasets", "jobs"].includes(kind.id)) tabs.unshift(["Логи", () => showWorkloadLogs(o)]);
+    if (kind.source !== "helm") tabs.unshift(["Детали", () => showDetails(o)]);
     if (kind.id === "applications") tabs.unshift(["Ресурсы", () => showArgoResources(o)]);
     const tabsEl = $(".drawer-tabs");
     tabsEl.innerHTML = "";
@@ -780,6 +838,64 @@ export function mountK8s(root: HTMLElement) {
     if (v === null) return;
     if (v !== o.metadata.name) return toast("Имя не совпало — ничего не удалено", "err");
     kubectlTab(`helm uninstall ${o.metadata.name}`, ["uninstall", o.metadata.name, "-n", o.metadata.namespace], undefined, "helm");
+  }
+
+  // ----- details (re-rendered when the watch delivers a newer version of the object) -----
+
+  let detailsKey: string | null = null;
+  let detailsVersion = "";
+  let detailsEvents: Obj[] | null = null;
+  let eventsAt = 0;
+
+  function showDetails(o: Obj) {
+    detailsKey = keyOf(o);
+    detailsVersion = "";
+    detailsEvents = null;
+    drawerCleanup = () => { detailsKey = null; };
+    renderDetails(o);
+    loadEvents(o);
+  }
+
+  async function loadEvents(o: Obj) {
+    eventsAt = Date.now();
+    const key = keyOf(o);
+    const ev = await invoke<Obj[]>("k8s_object_events", { ctx: ref(), namespace: o.metadata.namespace ?? null, uid: o.metadata.uid }).catch(() => [] as Obj[]);
+    if (detailsKey !== key) return;
+    detailsEvents = ev;
+    detailsVersion = "";
+    renderDetails(items.find((x) => keyOf(x) === key) ?? o);
+  }
+
+  function renderDetails(o: Obj) {
+    const version = `${o.metadata.resourceVersion}|${detailsEvents?.length ?? -1}`;
+    if (version === detailsVersion) return;
+    detailsVersion = version;
+    const scroll = drawerBody.querySelector(".details")?.scrollTop ?? 0;
+    drawerBody.innerHTML = detailsHtml(kind.id, o, detailsEvents);
+    const el = drawerBody.querySelector<HTMLElement>(".details")!;
+    el.scrollTop = scroll;
+    el.onclick = (e) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]")?.dataset.secret;
+      if (!key) return;
+      let text: string;
+      try { text = new TextDecoder().decode(Uint8Array.from(atob(o.data[key]), (c) => c.charCodeAt(0))); } catch { text = "(не удалось декодировать)"; }
+      const code = document.createElement("code");
+      code.className = "secret-value";
+      code.textContent = text;
+      (e.target as HTMLElement).replaceWith(code);
+      detailsVersion = "pinned"; // keep the revealed value until the object actually changes
+    };
+  }
+
+  /** Called from render(): refresh the open details panel from the live list. */
+  function syncDetails() {
+    if (!detailsKey || drawer.hidden) return;
+    const o = items.find((x) => keyOf(x) === detailsKey);
+    if (!o) return;
+    if (detailsVersion === "pinned" && o.metadata.resourceVersion === drawerBody.dataset.rv) return;
+    drawerBody.dataset.rv = o.metadata.resourceVersion;
+    renderDetails(o);
+    if (Date.now() - eventsAt > 20000) loadEvents(o);
   }
 
   function showArgoResources(o: Obj) {
@@ -1100,7 +1216,7 @@ export function mountK8s(root: HTMLElement) {
     const visible = contexts.filter((c) => !prefs.hidden.includes(ctxKey(c)));
     return [
       ...visible.map((c) => ({ group: "Kubernetes", title: `Контекст: ${c.context}`, hint: c.server, run: () => { go(); selectContext(c); } })),
-      ...KINDS.map((k) => ({ group: "Kubernetes", title: `Ресурсы: ${k.label}`, hint: ctx?.context, run: () => { go(); kindList.querySelectorAll<HTMLElement>(".kind-item").forEach((b) => { if (b.textContent === k.label) b.click(); }); } })),
+      ...allKinds().map((k) => ({ group: "Kubernetes", title: `Ресурсы: ${k.label}`, hint: k.crd ? k.group : ctx?.context, run: () => { go(); selectKind(k); } })),
       ...(ctx && !isReadonly() ? [{ group: "Kubernetes", title: `Терминал kubectl: ${ctx.context}`, run: () => $("[data-act=shell]").click() }] : []),
     ];
   });
