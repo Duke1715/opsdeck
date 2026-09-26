@@ -63,7 +63,28 @@ const nodeReady = (n: Obj) => {
   return n.spec?.unschedulable ? `${s},SchedulingDisabled` : s;
 };
 
-const KINDS: { id: string; label: string; group: string; namespaced: boolean; cols: Col[] }[] = [
+const argoSrc = (o: Obj) => o.spec?.source ?? o.spec?.sources?.[0] ?? {};
+const argoSync = (o: Obj) => o.status?.sync?.status ?? "Unknown";
+const argoHealth = (o: Obj) => o.status?.health?.status ?? "Unknown";
+const helmStatusCls = (s: string) => (s === "deployed" ? "ok" : s === "failed" ? "bad" : s === "superseded" || s === "uninstalled" ? "muted" : "warn");
+
+/** Quantities → millicores / bytes (same rules as the backend). */
+function cpuMilli(q?: string): number {
+  if (!q) return 0;
+  const m = /^([\d.]+)([num]?)$/.exec(q);
+  if (!m) return 0;
+  return Number(m[1]) * ({ n: 1e-6, u: 1e-3, m: 1, "": 1000 } as Record<string, number>)[m[2]];
+}
+function memBytes(q?: string): number {
+  if (!q) return 0;
+  const m = /^([\d.]+)(Ki|Mi|Gi|Ti|k|M|G|T)?$/.exec(q);
+  if (!m) return 0;
+  const mult: Record<string, number> = { Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3, Ti: 1024 ** 4, k: 1e3, M: 1e6, G: 1e9, T: 1e12 };
+  return Number(m[1]) * (m[2] ? mult[m[2]] : 1);
+}
+const fmtMem = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)}Gi` : `${Math.round(b / 1024 ** 2)}Mi`);
+
+const KINDS: { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm" }[] = [
   { id: "pods", label: "Pods", group: "Workloads", namespaced: true, cols: [
     name, ns,
     { h: "Ready", v: (o) => { const cs = o.status?.containerStatuses ?? []; return `${cs.filter((c: Obj) => c.ready).length}/${o.spec.containers.length}`; } },
@@ -148,6 +169,22 @@ const KINDS: { id: string; label: string; group: string; namespaced: boolean; co
     { h: "Причина", v: (o) => o.reason ?? "" },
     { h: "Сообщение", v: (o) => o.message ?? "", cls: () => "wrap" },
     { h: "×", v: (o) => o.count ?? 1 }] },
+  { id: "applications", label: "Applications", group: "Argo CD", namespaced: true, cols: [
+    name, ns,
+    { h: "Sync", v: argoSync, cls: (o) => (argoSync(o) === "Synced" ? "ok" : argoSync(o) === "OutOfSync" ? "warn" : "muted") },
+    { h: "Health", v: argoHealth, cls: (o) => ({ Healthy: "ok", Progressing: "warn", Suspended: "muted", Missing: "bad", Degraded: "bad" } as Record<string, string>)[argoHealth(o)] ?? "muted" },
+    { h: "Репозиторий", v: (o) => String(argoSrc(o).repoURL ?? "").replace(/^https?:\/\//, "").replace(/\.git$/, "") },
+    { h: "Путь / чарт", v: (o) => argoSrc(o).path ?? argoSrc(o).chart ?? "" },
+    { h: "Ревизия", v: (o) => argoSrc(o).targetRevision ?? "HEAD" },
+    { h: "Назначение", v: (o) => `${o.spec?.destination?.namespace ?? ""}${o.spec?.destination?.name ? " @ " + o.spec.destination.name : ""}` },
+    ageCol] },
+  { id: "helm", label: "Releases", group: "Helm", namespaced: true, source: "helm", cols: [
+    name, ns,
+    { h: "Ревизия", v: (o) => o.revision, sort: (o) => o.revision },
+    { h: "Статус", v: (o) => o.status ?? "", cls: (o) => helmStatusCls(o.status) },
+    { h: "Chart", v: (o) => o.chart ?? "" },
+    { h: "App version", v: (o) => o.app_version ?? "" },
+    { h: "Обновлён", v: (o) => age(o.updated), sort: (o) => -ts(o.updated) }] },
 ];
 
 // ---------- persistence ----------
@@ -175,7 +212,7 @@ export function mountK8s(root: HTMLElement) {
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="count muted"></span>
-        <label class="muted auto" title="Обновлять каждые 5 секунд"><input type="checkbox" class="auto-cb" checked /> авто</label>
+        <label class="muted auto" title="Живое обновление (watch): изменения в кластере появляются сразу"><input type="checkbox" class="auto-cb" checked /> live</label>
         <button class="icon" data-act="refresh" title="Обновить">↻</button>
         <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">⎈ Терминал</button>
       </div>
@@ -283,7 +320,7 @@ export function mountK8s(root: HTMLElement) {
     try {
       const backup = await invoke<string>("k8s_delete_context", { ctx: { file: c.file, context: c.context } });
       toast(`Контекст удалён. Резервная копия: ${backup}`);
-      if (ctx && ctxKey(ctx) === ctxKey(c)) { ctx = null; store.set("ctx", ""); items = []; closeDrawer(); render(); }
+      if (ctx && ctxKey(ctx) === ctxKey(c)) { ctx = null; stopWatch(); store.set("ctx", ""); items = []; closeDrawer(); render(); }
       loadContexts();
     } catch (e) { toast(String(e), "err"); }
   }
@@ -320,7 +357,7 @@ export function mountK8s(root: HTMLElement) {
       g.querySelector<HTMLElement>(".del")?.addEventListener("click", async () => {
         if ((await ask("Удалить kubeconfig", `Удалить импортированный файл «${list[0].label}»?`, { ok: "Удалить", danger: true })) === null) return;
         await invoke("k8s_remove_source", { file }).catch((e) => toast(String(e), "err"));
-        if (ctx?.file === file) ctx = null;
+        if (ctx?.file === file) { ctx = null; stopWatch(); }
         loadContexts();
       });
       for (const c of list) g.appendChild(ctxButton(c));
@@ -342,6 +379,7 @@ export function mountK8s(root: HTMLElement) {
     if (ctx && prefs.hidden.includes(ctxKey(ctx))) {
       // the selected context was just hidden: drop it
       ctx = null;
+      stopWatch();
       store.set("ctx", "");
       $(".ctx-title").textContent = "выберите контекст";
       $(".ctx-title").classList.add("muted");
@@ -353,6 +391,7 @@ export function mountK8s(root: HTMLElement) {
     if (ctx && !contexts.some((c) => ctxKey(c) === ctxKey(ctx!))) {
       // the selected context is gone (deleted, or system configs switched off)
       ctx = null;
+      stopWatch();
       $(".ctx-title").textContent = "выберите контекст";
       $(".ctx-title").classList.add("muted");
       items = [];
@@ -377,7 +416,9 @@ export function mountK8s(root: HTMLElement) {
     items = [];
     render();
     await loadNamespaces();
-    refresh();
+    usage.clear();
+    startWatch();
+    loadMetrics();
   }
 
   async function loadNamespaces() {
@@ -405,7 +446,8 @@ export function mountK8s(root: HTMLElement) {
     }
     store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
     closeDrawer();
-    refresh();
+    startWatch();
+    loadMetrics();
   };
 
   // ----- kinds -----
@@ -430,7 +472,8 @@ export function mountK8s(root: HTMLElement) {
         items = [];
         renderKinds();
         render();
-        refresh();
+        startWatch();
+        loadMetrics();
       };
       kindList.appendChild(b);
     }
@@ -439,13 +482,62 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- table -----
 
+  // ----- live data: watch stream for API kinds, one-shot load for Helm -----
+
+  let watchId = "";
+  let unlistenWatch: (() => void) | null = null;
+  let renderQueued = false;
+  const queueRender = () => {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; if (!root.hidden) render(); });
+  };
+
+  function stopWatch() {
+    if (watchId) invoke("k8s_watch_stop", { id: watchId });
+    unlistenWatch?.();
+    unlistenWatch = null;
+    watchId = "";
+  }
+
+  type WatchMsg = { type: "reset" | "apply" | "delete" | "error"; items?: Obj[]; uids?: string[]; message?: string };
+
+  async function startWatch() {
+    stopWatch();
+    if (!ctx) return;
+    if (kind.source === "helm" || !autoCb.checked) return refresh();
+    const id = `w${++loadSeq}`;
+    watchId = id;
+    root.classList.add("loading");
+    const un = await listen<WatchMsg>(`k8s-watch-${id}`, (e) => {
+      if (watchId !== id) return;
+      const m = e.payload;
+      if (m.type === "error") { errBox.hidden = false; errBox.textContent = m.message ?? "ошибка watch"; root.classList.remove("loading"); return; }
+      errBox.hidden = true;
+      if (m.type === "reset") { items = m.items ?? []; root.classList.remove("loading"); }
+      if (m.type === "apply") {
+        const byUid = new Map(items.map((o) => [o.metadata.uid, o]));
+        for (const o of m.items ?? []) byUid.set(o.metadata.uid, o);
+        items = [...byUid.values()];
+      }
+      if (m.type === "delete") { const gone = new Set(m.uids); items = items.filter((o) => !gone.has(o.metadata.uid)); }
+      queueRender();
+    });
+    if (watchId !== id) { un(); return; }
+    unlistenWatch = un;
+    invoke("k8s_watch_start", { ctx: ref(), id, kind: kind.id, namespace: currentNs() || null })
+      .catch((err) => { errBox.hidden = false; errBox.textContent = String(err); root.classList.remove("loading"); });
+  }
+
   async function refresh() {
     if (!ctx || loading) return;
     loading = true;
     const seq = ++loadSeq;
     root.classList.add("loading");
     try {
-      const list = await invoke<Obj[]>("k8s_list", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
+      const list = kind.source === "helm"
+        ? await invoke<Obj[]>("k8s_helm_releases", { ctx: ref(), namespace: currentNs() || null })
+        : await invoke<Obj[]>("k8s_list", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
       if (seq !== loadSeq) return;
       items = list;
       errBox.hidden = true;
@@ -460,8 +552,48 @@ export function mountK8s(root: HTMLElement) {
     }
   }
 
+  // ----- metrics-server -----
+
+  type Usage = { namespace: string; name: string; cpu_m: number; mem: number };
+  let usage = new Map<string, Usage>();
+  let metricsFor = "";
+  let metricsOk = false;
+  async function loadMetrics() {
+    if (!ctx || root.hidden || !["pods", "nodes"].includes(kind.id)) return;
+    const key = `${ctxKey(ctx)}|${kind.id}|${currentNs()}`;
+    try {
+      const list = await invoke<Usage[]>("k8s_metrics", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
+      if (key !== `${ctx && ctxKey(ctx)}|${kind.id}|${currentNs()}`) return;
+      usage = new Map(list.map((u) => [`${u.namespace}/${u.name}`, u]));
+      metricsFor = key;
+      metricsOk = true;
+    } catch {
+      metricsOk = false; // no metrics-server or no RBAC: just no columns
+    }
+    queueRender();
+  }
+  const metricCols = (): Col[] => {
+    if (!metricsOk || !ctx || metricsFor !== `${ctxKey(ctx)}|${kind.id}|${currentNs()}`) return [];
+    const u = (o: Obj) => usage.get(`${o.metadata.namespace ?? ""}/${o.metadata.name}`);
+    if (kind.id === "pods") return [
+      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => -(u(o)?.cpu_m ?? -1) },
+      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => -(u(o)?.mem ?? -1) },
+    ];
+    const pct = (used: number, total: number) => (total ? ` · ${Math.round((used / total) * 100)}%` : "");
+    const hot = (used: number, total: number) => (total && used / total > 0.85 ? "bad" : total && used / total > 0.7 ? "warn" : "");
+    return [
+      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m${pct(u(o)!.cpu_m, cpuMilli(o.status?.allocatable?.cpu))}` : ""),
+        sort: (o) => -(u(o)?.cpu_m ?? -1), cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuMilli(o.status?.allocatable?.cpu)) : "") },
+      { h: "RAM", v: (o) => (u(o) ? `${fmtMem(u(o)!.mem)}${pct(u(o)!.mem, memBytes(o.status?.allocatable?.memory))}` : ""),
+        sort: (o) => -(u(o)?.mem ?? -1), cls: (o) => (u(o) ? hot(u(o)!.mem, memBytes(o.status?.allocatable?.memory)) : "") },
+    ];
+  };
+
   function render() {
-    const cols = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
+    const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
+    // metrics go right before the age column
+    const mc = metricCols();
+    const cols = mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
     if (sortCol >= cols.length) sortCol = 0;
     thead.innerHTML = `<tr>${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}</tr>`;
     const q = filterIn.value.trim().toLowerCase();
@@ -514,8 +646,11 @@ export function mountK8s(root: HTMLElement) {
     const objNs: string = o.metadata.namespace ?? "";
     $(".obj-title").textContent = `${kind.label.replace(/s$/, "")} ${objNs ? objNs + "/" : ""}${o.metadata.name}`;
 
-    const tabs: [string, () => void][] = [["YAML", () => showYaml(o)]];
+    const tabs: [string, () => void][] = kind.source === "helm"
+      ? [["Values", () => showHelm(o, "values")], ["История", () => showHelm(o, "history")], ["Manifest", () => showHelm(o, "manifest")], ["Notes", () => showHelm(o, "notes")]]
+      : [["YAML", () => showYaml(o)]];
     if (kind.id === "pods") tabs.unshift(["Логи", () => showLogs(o)]);
+    if (kind.id === "applications") tabs.unshift(["Ресурсы", () => showArgoResources(o)]);
     const tabsEl = $(".drawer-tabs");
     tabsEl.innerHTML = "";
     tabs.forEach(([label, fn], i) => {
@@ -547,11 +682,73 @@ export function mountK8s(root: HTMLElement) {
     }
     if (kind.id === "pods") act("Port-forward", () => portForward(o, "pod"));
     if (kind.id === "services") act("Port-forward", () => portForward(o, "svc"));
+    if (kind.id === "applications" && !ro) {
+      act("Refresh", () => argo(o, "refresh"));
+      act("Sync", () => argo(o, "sync"));
+    }
+    if (kind.source === "helm") {
+      if (!ro) {
+        act("Rollback", () => helmRollback(o));
+        act("Uninstall", () => helmUninstall(o), "ghost danger");
+      }
+      return;
+    }
     if (!ro) {
       if (["deployments", "statefulsets", "replicasets"].includes(kind.id)) act("Scale", () => scale(o));
       if (["deployments", "statefulsets", "daemonsets"].includes(kind.id)) act("Restart", () => restart(o));
       act("Удалить", () => del(o), "ghost danger");
     }
+  }
+
+  type HelmDetail = { values: string; manifest: string; notes: string | null; history: Obj[] };
+  let helmCache: { key: string; data: HelmDetail } | null = null;
+  async function showHelm(o: Obj, tab: "values" | "history" | "manifest" | "notes") {
+    drawerBody.innerHTML = `<div class="yaml-pane"><pre class="ro-text">загрузка…</pre></div>`;
+    const pre = drawerBody.querySelector<HTMLElement>("pre")!;
+    const key = `${o.metadata.namespace}/${o.metadata.name}/${o.revision}`;
+    try {
+      if (helmCache?.key !== key) {
+        helmCache = { key, data: await invoke<HelmDetail>("k8s_helm_release", { ctx: ref(), namespace: o.metadata.namespace, name: o.metadata.name }) };
+      }
+      const d = helmCache.data;
+      if (tab === "history") {
+        drawerBody.innerHTML = `<div class="table-wrap"><table class="res"><thead><tr><th>Ревизия</th><th>Статус</th><th>Chart</th><th>App</th><th>Когда</th><th>Описание</th></tr></thead><tbody>${
+          d.history.map((h) => `<tr><td>${esc(h.revision)}</td><td class="${helmStatusCls(h.status)}">${esc(h.status)}</td><td>${esc(h.chart)}</td><td>${esc(h.app_version ?? "")}</td><td>${esc(age(h.updated))}</td><td class="wrap muted">${esc(h.description ?? "")}</td></tr>`).join("")
+        }</tbody></table></div>`;
+        return;
+      }
+      pre.textContent = (tab === "values" ? d.values : tab === "manifest" ? d.manifest : d.notes) || "(пусто)";
+    } catch (e) { pre.textContent = String(e); }
+  }
+
+  async function helmRollback(o: Obj) {
+    const prev = Math.max(1, Number(o.revision) - 1);
+    const rev = await ask("Helm rollback", `${o.metadata.namespace}/${o.metadata.name} (${ctx!.context}): на какую ревизию откатить? Текущая — ${o.revision}.`, { input: String(prev), ok: "Откатить" });
+    if (!rev || !/^\d+$/.test(rev)) return;
+    kubectlTab(`helm rollback ${o.metadata.name}`, ["rollback", o.metadata.name, rev, "-n", o.metadata.namespace], undefined, "helm");
+  }
+
+  async function helmUninstall(o: Obj) {
+    const v = await ask("Helm uninstall", `Удалить релиз ${o.metadata.namespace}/${o.metadata.name} в контексте ${ctx!.context} вместе со всеми его ресурсами? Для подтверждения введите имя релиза.`,
+      { input: "", placeholder: o.metadata.name, ok: "Удалить", danger: true });
+    if (v === null) return;
+    if (v !== o.metadata.name) return toast("Имя не совпало — ничего не удалено", "err");
+    kubectlTab(`helm uninstall ${o.metadata.name}`, ["uninstall", o.metadata.name, "-n", o.metadata.namespace], undefined, "helm");
+  }
+
+  function showArgoResources(o: Obj) {
+    const res: Obj[] = o.status?.resources ?? [];
+    const cls = (s?: string) => ({ Synced: "ok", OutOfSync: "warn", Healthy: "ok", Progressing: "warn", Degraded: "bad", Missing: "bad" } as Record<string, string>)[s ?? ""] ?? "muted";
+    drawerBody.innerHTML = `<div class="table-wrap"><table class="res"><thead><tr><th>Kind</th><th>Namespace</th><th>Имя</th><th>Sync</th><th>Health</th></tr></thead><tbody>${
+      res.map((r) => `<tr><td>${esc(r.kind)}</td><td>${esc(r.namespace ?? "")}</td><td>${esc(r.name)}</td><td class="${cls(r.status)}">${esc(r.status ?? "")}</td><td class="${cls(r.health?.status)}">${esc(r.health?.status ?? "")}</td></tr>`).join("")
+      || `<tr><td class="muted">Нет данных о ресурсах</td></tr>`
+    }</tbody></table></div>`;
+  }
+
+  async function argo(o: Obj, action: "refresh" | "sync") {
+    if (action === "sync" && (await ask("Argo CD sync", `Синхронизировать ${o.metadata.name} (${ctx!.context})? Будет применено состояние из ${argoSrc(o).repoURL ?? "репозитория"}.`, { ok: "Sync" })) === null) return;
+    invoke("k8s_argo_action", { ctx: ref(), namespace: o.metadata.namespace, name: o.metadata.name, action })
+      .then(() => toast(action === "sync" ? `Sync запущен: ${o.metadata.name}` : `Refresh: ${o.metadata.name}`), (e) => toast(String(e), "err"));
   }
 
   async function showYaml(o: Obj) {
@@ -645,11 +842,11 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- actions -----
 
-  async function kubectlTab(title: string, args: string[], nsForShell?: string) {
+  async function kubectlTab(title: string, args: string[], nsForShell?: string, program = "kubectl") {
     try {
       const path = await invoke<string>("k8s_shell_config", { ctx: ref(), namespace: nsForShell ?? null });
       const detail: OpenTerminalDetail = args.length
-        ? { title, program: "kubectl", args, env: { KUBECONFIG: path }, keepOpen: true }
+        ? { title, program, args, env: { KUBECONFIG: path }, keepOpen: true }
         : { title, env: { KUBECONFIG: path } };
       window.dispatchEvent(new CustomEvent("open-terminal", { detail }));
     } catch (e) { toast(String(e), "err"); }
@@ -754,17 +951,23 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- toolbar / timers -----
 
-  $("[data-act=refresh]").onclick = () => refresh();
+  $("[data-act=refresh]").onclick = () => { startWatch(); loadMetrics(); };
   $("[data-act=close-drawer]").onclick = closeDrawer;
   $("[data-act=shell]").onclick = () => ctx && kubectlTab(`⎈ ${ctx.context}${nsSel.value ? "/" + nsSel.value : ""}`, [], nsSel.value || undefined);
   autoCb.checked = store.get("auto") !== "0";
-  autoCb.onchange = () => store.set("auto", autoCb.checked ? "1" : "0");
+  autoCb.onchange = () => { store.set("auto", autoCb.checked ? "1" : "0"); startWatch(); };
 
+  // Helm has no watch API: poll it; metrics are sampled by metrics-server every ~15 s anyway
   setInterval(() => {
-    if (!root.hidden && autoCb.checked && !document.hidden) refresh();
-  }, 5000);
+    if (!root.hidden && autoCb.checked && !document.hidden && kind.source === "helm") refresh();
+  }, 30000);
+  setInterval(() => { if (!document.hidden) loadMetrics(); }, 15000);
   window.addEventListener("view-shown", (e) => {
-    if ((e as CustomEvent).detail === "k8s") { loadContexts(); refresh(); }
+    if ((e as CustomEvent).detail !== "k8s") return;
+    loadContexts();
+    if (ctx && !watchId && kind.source !== "helm") startWatch();
+    render();
+    loadMetrics();
   });
 
   registerProvider(() => {
