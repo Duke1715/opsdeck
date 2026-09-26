@@ -30,7 +30,7 @@ npm run tauri dev
 | Claude Code IDE | OpsDeck — «IDE» для `claude`: lock-файл в `~/.claude/ide/`, MCP по WebSocket (токен, только 127.0.0.1). `claude`, запущенный в OpsDeck, подключается сам: видит выделение в заметках, «@ Claude» вставляет ссылку на заметку, может открыть заметку |
 | AI-панель | Справа от терминала: Claude Code / Codex / Gemini / Aider в своём PTY. `Ctrl+Shift+I` показать, `Ctrl+Shift+A` отправить выделение из терминала в AI |
 | Grafana / ArgoCD / GitLab | Отдельное окно webview, автологин init-скриптом только на указанном origin. Секреты в системном keyring (Secret Service), метаданные в `~/.config/opsdeck/connectors.json` |
-| Kubernetes | kube-rs. Своё хранилище kubeconfig `~/.config/opsdeck/kubeconfigs` (по файлу на контекст, права 600): ＋ → «Добавить из ~/.kube/config» копирует выбранные контексты, также вставка YAML и drag&drop. Общий `~/.kube/config` не читается и не меняется (включается в ⚙). Вкладки терминала OpsDeck получают `KUBECONFIG` только на хранилище OpsDeck. Таблицы ресурсов с автообновлением, YAML (server-side apply), логи, scale / restart / delete, shell / exec / port-forward. Контекст можно скрыть 🙈, сделать «только чтение» 🔒 (блокирует бэкенд) или удалить 🗑 (с резервной копией) |
+| Kubernetes | kube-rs. Своё хранилище kubeconfig `~/.config/opsdeck/kubeconfigs` (по файлу на контекст, права 600): ＋ → «Добавить из ~/.kube/config» копирует выбранные контексты, также вставка YAML и drag&drop. Общий `~/.kube/config` не читается и не меняется (включается в ⚙). Вкладки терминала OpsDeck получают `KUBECONFIG` только на хранилище OpsDeck. Таблицы обновляются вживую (watch), для подов и нод — CPU/RAM из metrics-server (у нод — % от allocatable). Helm-релизы (values, история, manifest, notes; rollback / uninstall через helm во вкладке терминала). Argo CD Applications (sync/health, ресурсы приложения, Refresh / Sync). YAML (server-side apply), логи, scale / restart / delete, shell / exec / port-forward. Контекст можно скрыть 🙈, сделать «только чтение» 🔒 (блокирует бэкенд) или удалить 🗑 (с резервной копией) |
 | KeePass | Чтение `.kdbx` (KDBX3/4, пароль и/или ключевой файл), только чтение. База расшифрована лишь в памяти, автоблокировка по таймауту. Копирование логина/пароля, пароль стирается из буфера через 30 с. Записи KeePass служат источником кредов для веб-панелей и MikroTik |
 | Заметки | Дерево папок и поиск по vault (Obsidian или любая папка с .md), редактор и просмотр markdown (с `[[wikilinks]]`, HTML санитизируется), daily note по настройкам плагина, открытие в Obsidian через `obsidian://`. Все пути ограничены vault |
 | MikroTik | Список устройств по группам: WinBox с логином и паролем из KeePass/keyring, SSH во вкладку терминала (пароль в буфер), ping |
@@ -46,7 +46,7 @@ npm run tauri dev
 ## Дорожная карта
 
 **Kubernetes, дальше**
-- Watch вместо опроса раз в 5 с, метрики (metrics-server), CRD (Argo Applications, cert-manager), Helm-релизы
+- Произвольные CRD (cert-manager, ingress-nginx и т.д.) через discovery
 - Вкладка «Детали» (контейнеры, условия, события объекта), логи сразу со всех подов деплоймента
 
 **Хранилища, дальше**
