@@ -3,7 +3,7 @@
 //! terminal tab with KUBECONFIG pointing at a single-context file from `k8s_shell_config`.
 
 use futures::{AsyncBufReadExt, StreamExt};
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{Pod, Secret};
 use kube::{
     api::{Api, ApiResource, DeleteParams, DynamicObject, GroupVersionKind, ListParams, LogParams, Patch, PatchParams},
     config::{KubeConfigOptions, Kubeconfig},
@@ -27,6 +27,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct K8sState {
     clients: Mutex<HashMap<(String, String), Client>>,
     logs: std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>,
+    watches: std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -419,6 +420,7 @@ const KINDS: &[(&str, &str, &str, &str, bool)] = &[
     ("", "v1", "Node", "nodes", false),
     ("", "v1", "Namespace", "namespaces", false),
     ("", "v1", "PersistentVolume", "persistentvolumes", false),
+    ("argoproj.io", "v1alpha1", "Application", "applications", true),
 ];
 
 fn api(client: Client, kind: &str, ns: Option<&str>) -> Result<Api<DynamicObject>, String> {
@@ -618,6 +620,282 @@ pub fn k8s_logs_stop(state: State<K8sState>, id: String) {
     if let Some(tx) = state.logs.lock().unwrap().remove(&id) {
         let _ = tx.send(());
     }
+}
+
+
+
+// ---------- live watch ----------
+
+/// Streams a resource list: `k8s-watch-{id}` gets {type:"reset", items} after every (re)list,
+/// then batched {type:"apply", items} / {type:"delete", uids}; {type:"error", message} on failures.
+#[tauri::command]
+pub async fn k8s_watch_start(
+    app: AppHandle,
+    state: State<'_, K8sState>,
+    ctx: Ctx,
+    id: String,
+    kind: String,
+    namespace: Option<String>,
+) -> Result<(), String> {
+    use kube::runtime::{watcher, WatchStreamExt};
+    let c = client(&state, &ctx).await?;
+    let api = api(c, &kind, namespace.as_deref())?;
+    let (tx, mut stop) = oneshot::channel();
+    if let Some(old) = state.watches.lock().unwrap().insert(id.clone(), tx) {
+        let _ = old.send(());
+    }
+    let event = format!("k8s-watch-{id}");
+    tauri::async_runtime::spawn(async move {
+        let mut stream = watcher(api, watcher::Config::default()).default_backoff().boxed();
+        let mut init: Vec<Value> = Vec::new();
+        let (mut applied, mut deleted): (Vec<Value>, Vec<String>) = (Vec::new(), Vec::new());
+        let mut tick = tokio::time::interval(Duration::from_millis(300));
+        let mut errored = false;
+        let to_value = |o: DynamicObject| serde_json::to_value(o).ok().map(clean);
+        loop {
+            tokio::select! {
+                _ = &mut stop => break,
+                _ = tick.tick() => {
+                    if !applied.is_empty() { let _ = app.emit(&event, json!({ "type": "apply", "items": std::mem::take(&mut applied) })); }
+                    if !deleted.is_empty() { let _ = app.emit(&event, json!({ "type": "delete", "uids": std::mem::take(&mut deleted) })); }
+                }
+                ev = stream.next() => match ev {
+                    None => break,
+                    Some(Err(e)) => {
+                        // the watcher retries with backoff; report the first error of a streak only
+                        if !errored { let _ = app.emit(&event, json!({ "type": "error", "message": e.to_string() })); }
+                        errored = true;
+                    }
+                    Some(Ok(ev)) => {
+                        errored = false;
+                        match ev {
+                            watcher::Event::Init => init.clear(),
+                            watcher::Event::InitApply(o) => init.extend(to_value(o)),
+                            watcher::Event::InitDone => {
+                                applied.clear();
+                                deleted.clear();
+                                let _ = app.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));
+                            }
+                            watcher::Event::Apply(o) => applied.extend(to_value(o)),
+                            watcher::Event::Delete(o) => deleted.extend(o.metadata.uid),
+                        }
+                    }
+                },
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn k8s_watch_stop(state: State<K8sState>, id: String) {
+    if let Some(tx) = state.watches.lock().unwrap().remove(&id) {
+        let _ = tx.send(());
+    }
+}
+
+// ---------- metrics-server ----------
+
+/// CPU in millicores from a quantity like "123456789n", "250m", "2".
+fn cpu_milli(q: &str) -> f64 {
+    let (num, mult) = match q.chars().last() {
+        Some('n') => (&q[..q.len() - 1], 1e-6),
+        Some('u') => (&q[..q.len() - 1], 1e-3),
+        Some('m') => (&q[..q.len() - 1], 1.0),
+        _ => (q, 1000.0),
+    };
+    num.parse::<f64>().unwrap_or(0.0) * mult
+}
+
+/// Memory in bytes from a quantity like "123456Ki", "512Mi", "1G", "1024".
+fn mem_bytes(q: &str) -> f64 {
+    const UNITS: &[(&str, f64)] = &[
+        ("Ki", 1024.0), ("Mi", 1048576.0), ("Gi", 1073741824.0), ("Ti", 1099511627776.0),
+        ("k", 1e3), ("M", 1e6), ("G", 1e9), ("T", 1e12),
+    ];
+    for (suffix, mult) in UNITS {
+        if let Some(n) = q.strip_suffix(suffix) {
+            return n.parse::<f64>().unwrap_or(0.0) * mult;
+        }
+    }
+    q.parse().unwrap_or(0.0)
+}
+
+#[derive(Serialize)]
+pub struct Usage {
+    namespace: String,
+    name: String,
+    cpu_m: f64,
+    mem: f64,
+}
+
+/// Current usage from metrics.k8s.io for "pods" (summed over containers) or "nodes".
+#[tauri::command]
+pub async fn k8s_metrics(state: State<'_, K8sState>, ctx: Ctx, kind: String, namespace: Option<String>) -> Result<Vec<Usage>, String> {
+    metrics(&state, &ctx, &kind, namespace.as_deref()).await
+}
+
+async fn metrics(state: &K8sState, ctx: &Ctx, kind: &str, namespace: Option<&str>) -> Result<Vec<Usage>, String> {
+    let (k, plural, namespaced) = match kind {
+        "pods" => ("PodMetrics", "pods", true),
+        "nodes" => ("NodeMetrics", "nodes", false),
+        _ => return Err("metrics only for pods and nodes".into()),
+    };
+    let ar = ApiResource::from_gvk_with_plural(&GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", k), plural);
+    let c = client(state, ctx).await?;
+    let api: Api<DynamicObject> = match (namespaced, namespace.filter(|n| !n.is_empty())) {
+        (true, Some(ns)) => Api::namespaced_with(c, ns, &ar),
+        _ => Api::all_with(c, &ar),
+    };
+    let list = timed(api.list(&ListParams::default())).await?;
+    Ok(list
+        .items
+        .into_iter()
+        .map(|o| {
+            let usages: Vec<&Value> = match o.data["containers"].as_array() {
+                Some(cs) => cs.iter().map(|c| &c["usage"]).collect(),
+                None => vec![&o.data["usage"]],
+            };
+            Usage {
+                namespace: o.metadata.namespace.clone().unwrap_or_default(),
+                name: o.metadata.name.clone().unwrap_or_default(),
+                cpu_m: usages.iter().map(|u| cpu_milli(u["cpu"].as_str().unwrap_or("0"))).sum(),
+                mem: usages.iter().map(|u| mem_bytes(u["memory"].as_str().unwrap_or("0"))).sum(),
+            }
+        })
+        .collect())
+}
+
+// ---------- Helm (releases are stored as secrets of type helm.sh/release.v1) ----------
+
+/// Secret payload: base64 text of gzipped release JSON (the API already undid the outer base64).
+fn decode_release(sec: &Secret) -> Option<Value> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use std::io::Read;
+    let raw = sec.data.as_ref()?.get("release")?;
+    let gz = STANDARD.decode(&raw.0).ok()?;
+    let mut json = String::new();
+    flate2::read::GzDecoder::new(&gz[..]).read_to_string(&mut json).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn release_summary(r: &Value) -> Value {
+    let meta = &r["chart"]["metadata"];
+    json!({
+        "name": r["name"], "namespace": r["namespace"], "revision": r["version"],
+        "status": r["info"]["status"], "updated": r["info"]["last_deployed"],
+        "description": r["info"]["description"],
+        "chart": format!("{}-{}", meta["name"].as_str().unwrap_or("?"), meta["version"].as_str().unwrap_or("?")),
+        "app_version": meta["appVersion"],
+    })
+}
+
+fn helm_api(c: Client, namespace: Option<&str>) -> Api<Secret> {
+    match namespace.filter(|n| !n.is_empty()) {
+        Some(ns) => Api::namespaced(c, ns),
+        None => Api::all(c),
+    }
+}
+
+/// (namespace, secret name, release name, revision, status) from metadata only — release
+/// secrets are large, so bodies are fetched one by one when actually needed.
+async fn helm_index(state: &K8sState, ctx: &Ctx, namespace: Option<&str>, name: Option<&str>) -> Result<Vec<(String, String, String, u64, String)>, String> {
+    let c = client(state, ctx).await?;
+    let mut selector = "owner=helm".to_string();
+    if let Some(n) = name {
+        selector.push_str(&format!(",name={n}"));
+    }
+    let list = timed(helm_api(c, namespace).list_metadata(&ListParams::default().labels(&selector))).await?;
+    Ok(list
+        .items
+        .into_iter()
+        .map(|m| {
+            let l = m.metadata.labels.unwrap_or_default();
+            let get = |k: &str| l.get(k).cloned().unwrap_or_default();
+            (
+                m.metadata.namespace.unwrap_or_default(),
+                m.metadata.name.unwrap_or_default(),
+                get("name"),
+                get("version").parse().unwrap_or(0),
+                get("status"),
+            )
+        })
+        .collect())
+}
+
+async fn helm_get(state: &K8sState, ctx: &Ctx, namespace: &str, secret: &str) -> Result<Value, String> {
+    let c = client(state, ctx).await?;
+    let s = timed(helm_api(c, Some(namespace)).get(secret)).await?;
+    decode_release(&s).ok_or_else(|| format!("не удалось разобрать {secret}"))
+}
+
+/// Latest revision of every release, plus revision count.
+#[tauri::command]
+pub async fn k8s_helm_releases(state: State<'_, K8sState>, ctx: Ctx, namespace: Option<String>) -> Result<Vec<Value>, String> {
+    helm_releases(&state, &ctx, namespace.as_deref()).await
+}
+
+async fn helm_releases(state: &K8sState, ctx: &Ctx, namespace: Option<&str>) -> Result<Vec<Value>, String> {
+    let index = helm_index(state, ctx, namespace, None).await?;
+    let mut latest: HashMap<(String, String), (u64, usize, String)> = HashMap::new();
+    for (ns, secret, name, rev, _) in index {
+        let e = latest.entry((ns, name)).or_insert((0, 0, String::new()));
+        e.1 += 1;
+        if rev >= e.0 {
+            e.0 = rev;
+            e.2 = secret;
+        }
+    }
+    let fetches = latest.into_iter().map(|((ns, name), (_, count, secret))| async move {
+        let r = helm_get(state, ctx, &ns, &secret).await.ok()?;
+        let mut v = release_summary(&r);
+        v["revisions"] = json!(count);
+        v["metadata"] = json!({ "name": name, "namespace": ns, "uid": format!("helm/{ns}/{name}") });
+        Some(v)
+    });
+    let mut out: Vec<Value> = futures::future::join_all(fetches).await.into_iter().flatten().collect();
+    out.sort_by(|a, b| (a["namespace"].as_str(), a["name"].as_str()).cmp(&(b["namespace"].as_str(), b["name"].as_str())));
+    Ok(out)
+}
+
+/// Values, manifest and notes of the latest revision + full history of one release.
+#[tauri::command]
+pub async fn k8s_helm_release(state: State<'_, K8sState>, ctx: Ctx, namespace: String, name: String) -> Result<Value, String> {
+    let mut index = helm_index(&state, &ctx, Some(&namespace), Some(&name)).await?;
+    index.sort_by_key(|x| std::cmp::Reverse(x.3));
+    let (_, last_secret, ..) = index.first().ok_or("релиз не найден")?.clone();
+    let last = helm_get(&state, &ctx, &namespace, &last_secret).await?;
+    let yaml = |v: &Value| if v.is_null() || v.as_object().is_some_and(|o| o.is_empty()) { "# значения по умолчанию из чарта\n".to_string() } else { serde_yaml_ng::to_string(v).unwrap_or_default() };
+    // history needs chart/date per revision: fetch older revisions (usually a handful, capped)
+    let older = index.iter().skip(1).take(20).map(|(ns, secret, ..)| helm_get(&state, &ctx, ns, secret));
+    let mut history = vec![release_summary(&last)];
+    history.extend(futures::future::join_all(older).await.into_iter().flatten().map(|r| release_summary(&r)));
+    Ok(json!({
+        "values": yaml(&last["config"]),
+        "manifest": last["manifest"],
+        "notes": last["info"]["notes"],
+        "history": history,
+    }))
+}
+
+// ---------- Argo CD ----------
+
+/// "refresh": hard refresh annotation; "sync": set .operation like the argocd CLI does.
+#[tauri::command]
+pub async fn k8s_argo_action(state: State<'_, K8sState>, ctx: Ctx, namespace: String, name: String, action: String) -> Result<(), String> {
+    ensure_writable(&ctx)?;
+    let c = client(&state, &ctx).await?;
+    let apps = api(c, "applications", Some(&namespace))?;
+    let patch = match action.as_str() {
+        "refresh" => json!({ "metadata": { "annotations": { "argocd.argoproj.io/refresh": "hard" } } }),
+        "sync" => json!({ "operation": {
+            "initiatedBy": { "username": "opsdeck" },
+            "sync": { "syncStrategy": { "hook": {} } },
+        } }),
+        _ => return Err("unknown action".into()),
+    };
+    timed(apps.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))).await?;
+    Ok(())
 }
 
 
