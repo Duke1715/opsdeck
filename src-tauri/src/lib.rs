@@ -46,6 +46,7 @@ pub fn run() {
             k8s::k8s_restart,
             k8s::k8s_logs_start,
             k8s::k8s_logs_stop,
+            k8s::k8s_logs_workload_start,
             k8s::k8s_prefs_get,
             k8s::k8s_prefs_set,
             k8s::k8s_delete_context,

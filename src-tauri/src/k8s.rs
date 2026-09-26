@@ -28,6 +28,8 @@ pub struct K8sState {
     clients: Mutex<HashMap<(String, String), Client>>,
     logs: std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>,
     watches: std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>,
+    /// multi-pod log sessions: dropping/sending stops every per-container stream
+    workload_logs: std::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -620,6 +622,172 @@ pub fn k8s_logs_stop(state: State<K8sState>, id: String) {
     if let Some(tx) = state.logs.lock().unwrap().remove(&id) {
         let _ = tx.send(());
     }
+    if let Some(tx) = state.workload_logs.lock().unwrap().remove(&id) {
+        let _ = tx.send(true);
+    }
+}
+
+// ---------- logs of every pod of a workload ----------
+
+const MAX_WORKLOAD_PODS: usize = 40;
+
+#[derive(Serialize, Clone)]
+struct PodLine {
+    pod: String,
+    container: String,
+    line: String,
+}
+
+#[derive(Deserialize)]
+pub struct WorkloadLogRequest {
+    kind: String,
+    namespace: String,
+    name: String,
+    /// None = all containers
+    container: Option<String>,
+    tail: Option<i64>,
+    timestamps: Option<bool>,
+}
+
+/// Label selector string from `spec.selector` (matchLabels + matchExpressions).
+fn selector_string(sel: &Value) -> Option<String> {
+    let mut parts: Vec<String> = sel["matchLabels"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or_default()))
+        .collect();
+    for e in sel["matchExpressions"].as_array().into_iter().flatten() {
+        let key = e["key"].as_str()?;
+        let vals: Vec<&str> = e["values"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        parts.push(match e["operator"].as_str()? {
+            "In" => format!("{key} in ({})", vals.join(",")),
+            "NotIn" => format!("{key} notin ({})", vals.join(",")),
+            "Exists" => key.to_string(),
+            "DoesNotExist" => format!("!{key}"),
+            _ => return None,
+        });
+    }
+    (!parts.is_empty()).then(|| parts.join(","))
+}
+
+/// Streams logs of all pods selected by a Deployment/StatefulSet/DaemonSet/ReplicaSet/Job into
+/// `k8s-log-{id}` as batches of {pod, container, line}; `k8s-log-pods-{id}` gets the list of
+/// streamed pods whenever it changes. Pods created later (rollouts) are picked up via watch.
+#[tauri::command]
+pub async fn k8s_logs_workload_start(
+    app: AppHandle,
+    state: State<'_, K8sState>,
+    ctx: Ctx,
+    id: String,
+    req: WorkloadLogRequest,
+) -> Result<(), String> {
+    use kube::runtime::{watcher, WatchStreamExt};
+    let c = client(&state, &ctx).await?;
+    let obj = timed(api(c.clone(), &req.kind, Some(&req.namespace))?.get(&req.name)).await?;
+    let selector = selector_string(&obj.data["spec"]["selector"]).ok_or("у ресурса нет селектора подов")?;
+
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    if let Some(old) = state.workload_logs.lock().unwrap().insert(id.clone(), stop_tx) {
+        let _ = old.send(true);
+    }
+    let (line_tx, mut line_rx) = mpsc_channel();
+
+    // aggregator: batch lines from every container stream
+    {
+        let app = app.clone();
+        let mut stop = stop_rx.clone();
+        let event = format!("k8s-log-{id}");
+        tauri::async_runtime::spawn(async move {
+            let mut batch: Vec<PodLine> = Vec::new();
+            let mut tick = tokio::time::interval(Duration::from_millis(150));
+            loop {
+                tokio::select! {
+                    _ = stop.changed() => break,
+                    _ = tick.tick() => if !batch.is_empty() { let _ = app.emit(&event, std::mem::take(&mut batch)); },
+                    l = line_rx.recv() => match l {
+                        Some(l) => { batch.push(l); if batch.len() >= 2000 { let _ = app.emit(&event, std::mem::take(&mut batch)); } }
+                        None => break,
+                    },
+                }
+            }
+        });
+    }
+
+    // pod watcher: start a stream per (pod, container) once the container is running
+    let pods: Api<Pod> = Api::namespaced(c, &req.namespace);
+    let started = std::time::Instant::now();
+    let tail = req.tail.unwrap_or(200);
+    let timestamps = req.timestamps.unwrap_or(false);
+    let only = req.container.filter(|c| !c.is_empty());
+    tauri::async_runtime::spawn(async move {
+        let active: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<(String, String)>>> = Default::default();
+        let mut stream = watcher(pods.clone(), watcher::Config::default().labels(&selector)).default_backoff().boxed();
+        let mut stop = stop_rx.clone();
+        let pods_event = format!("k8s-log-pods-{id}");
+        let mut known: std::collections::BTreeSet<String> = Default::default();
+        loop {
+            let ev = tokio::select! {
+                _ = stop.changed() => break,
+                ev = stream.next() => match ev { Some(Ok(ev)) => ev, Some(Err(_)) => continue, None => break },
+            };
+            let (pod, removed) = match ev {
+                watcher::Event::Apply(p) | watcher::Event::InitApply(p) => (p, false),
+                watcher::Event::Delete(p) => (p, true),
+                _ => continue,
+            };
+            let pod_name = pod.metadata.name.clone().unwrap_or_default();
+            let changed = if removed { known.remove(&pod_name) } else { known.insert(pod_name.clone()) };
+            if changed {
+                let _ = app.emit(&pods_event, known.iter().collect::<Vec<_>>());
+            }
+            if removed || known.len() > MAX_WORKLOAD_PODS {
+                continue;
+            }
+            let running: Vec<String> = pod.status.as_ref().and_then(|s| s.container_statuses.as_ref()).into_iter().flatten()
+                .filter(|cs| cs.state.as_ref().is_some_and(|st| st.running.is_some()))
+                .map(|cs| cs.name.clone())
+                .filter(|n| only.as_ref().is_none_or(|o| o == n))
+                .collect();
+            for container in running {
+                let key = (pod_name.clone(), container.clone());
+                if !active.lock().unwrap().insert(key.clone()) {
+                    continue; // already streaming
+                }
+                // pods that existed at start get the tail; later ones (rollout) are shown from their start
+                let fresh = started.elapsed() > Duration::from_secs(3);
+                let lp = LogParams {
+                    container: Some(container.clone()),
+                    follow: true,
+                    tail_lines: if fresh { None } else { Some(tail) },
+                    timestamps,
+                    ..Default::default()
+                };
+                let (pods, tx, active, mut stop) = (pods.clone(), line_tx.clone(), active.clone(), stop_rx.clone());
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(reader) = pods.log_stream(&key.0, &lp).await {
+                        let mut lines = reader.lines();
+                        loop {
+                            tokio::select! {
+                                _ = stop.changed() => break,
+                                l = lines.next() => match l {
+                                    Some(Ok(line)) => { if tx.send(PodLine { pod: key.0.clone(), container: key.1.clone(), line }).is_err() { break; } }
+                                    _ => break,
+                                },
+                            }
+                        }
+                    }
+                    // container stopped/restarted: allow a new stream on the next pod update
+                    active.lock().unwrap().remove(&key);
+                });
+            }
+        }
+    });
+    Ok(())
+}
+
+fn mpsc_channel() -> (tokio::sync::mpsc::UnboundedSender<PodLine>, tokio::sync::mpsc::UnboundedReceiver<PodLine>) {
+    tokio::sync::mpsc::unbounded_channel()
 }
 
 
@@ -897,5 +1065,6 @@ pub async fn k8s_argo_action(state: State<'_, K8sState>, ctx: Ctx, namespace: St
     timed(apps.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))).await?;
     Ok(())
 }
+
 
 

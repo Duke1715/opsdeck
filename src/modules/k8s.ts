@@ -187,6 +187,51 @@ const KINDS: { id: string; label: string; group: string; namespaced: boolean; co
     { h: "Обновлён", v: (o) => age(o.updated), sort: (o) => -ts(o.updated) }] },
 ];
 
+// ---------- log view: buffer + text/pod filter over an xterm ----------
+
+type LogLine = { pod?: string; text: string };
+const LOG_CAP = 50000;
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+class LogView {
+  private lines: LogLine[] = [];
+  private text = "";
+  private pod = "";
+  constructor(readonly term: Terminal) {}
+  private match = (l: LogLine) =>
+    (!this.pod || l.pod === this.pod) && (!this.text || stripAnsi(l.text).toLowerCase().includes(this.text));
+  add(ls: LogLine[]) {
+    this.lines.push(...ls);
+    if (this.lines.length > LOG_CAP) this.lines.splice(0, this.lines.length - LOG_CAP);
+    const shown = ls.filter(this.match);
+    if (shown.length) this.term.write(shown.map((l) => l.text).join("\n") + "\n");
+  }
+  setFilter(text: string, pod = this.pod) {
+    this.text = text.trim().toLowerCase();
+    this.pod = pod;
+    this.term.reset();
+    const shown = this.lines.filter(this.match);
+    // write in chunks so a big buffer doesn't freeze the UI
+    for (let i = 0; i < shown.length; i += 5000) this.term.write(shown.slice(i, i + 5000).map((l) => l.text).join("\n") + "\n");
+  }
+  clear() {
+    this.lines = [];
+    this.term.reset();
+  }
+  /** Selection, or the last `n` visible lines without colors. */
+  tail(n = 150) {
+    const sel = this.term.getSelection().trim();
+    return sel || this.lines.filter(this.match).slice(-n).map((l) => stripAnsi(l.text)).join("\n");
+  }
+}
+
+const POD_COLORS = [36, 33, 35, 32, 34, 91, 96, 93];
+function podColor(pod: string) {
+  let h = 0;
+  for (const ch of pod) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return POD_COLORS[h % POD_COLORS.length];
+}
+
 // ---------- persistence ----------
 
 const store = {
@@ -650,6 +695,7 @@ export function mountK8s(root: HTMLElement) {
       ? [["Values", () => showHelm(o, "values")], ["История", () => showHelm(o, "history")], ["Manifest", () => showHelm(o, "manifest")], ["Notes", () => showHelm(o, "notes")]]
       : [["YAML", () => showYaml(o)]];
     if (kind.id === "pods") tabs.unshift(["Логи", () => showLogs(o)]);
+    if (["deployments", "statefulsets", "daemonsets", "replicasets", "jobs"].includes(kind.id)) tabs.unshift(["Логи", () => showWorkloadLogs(o)]);
     if (kind.id === "applications") tabs.unshift(["Ресурсы", () => showArgoResources(o)]);
     const tabsEl = $(".drawer-tabs");
     tabsEl.innerHTML = "";
@@ -787,6 +833,7 @@ export function mountK8s(root: HTMLElement) {
         <select class="lt"><option value="100">100 строк</option><option value="500" selected>500 строк</option><option value="2000">2000 строк</option><option value="10000">10000 строк</option></select>
         <label class="muted"><input type="checkbox" class="lp" /> previous</label>
         <label class="muted"><input type="checkbox" class="lts" /> время</label>
+        <input class="lf" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="lstate muted"></span>
         <button class="ghost" data-l="ai" title="Отправить выделение (или последние 150 строк) в AI-панель">⇢ в AI</button>
@@ -805,14 +852,17 @@ export function mountK8s(root: HTMLElement) {
     const id = `log${Date.now()}`;
     let unlisten: UnlistenFn[] = [];
     const state = q(".lstate");
+    const view = new LogView(term);
     const stop = () => { invoke("k8s_logs_stop", { id }); unlisten.forEach((u) => u()); unlisten = []; };
+    let ft = 0;
+    q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => view.setFilter(q<HTMLInputElement>(".lf").value), 150); };
 
     const start = async () => {
       stop();
-      term.reset();
+      view.clear();
       state.textContent = "подключение…";
       unlisten = [
-        await listen<string[]>(`k8s-log-${id}`, (e) => { term.write(e.payload.join("\n") + "\n"); state.textContent = "● live"; }),
+        await listen<string[]>(`k8s-log-${id}`, (e) => { view.add(e.payload.map((text) => ({ text }))); state.textContent = "● live"; }),
         await listen<string | null>(`k8s-log-end-${id}`, (e) => { state.textContent = e.payload ? `ошибка: ${e.payload}` : "поток завершён"; }),
       ];
       try {
@@ -826,15 +876,90 @@ export function mountK8s(root: HTMLElement) {
       }
     };
     [".lc", ".lt", ".lp", ".lts"].forEach((s) => q(s).addEventListener("change", start));
-    q<HTMLElement>("[data-l=clear]").onclick = () => term.clear();
+    q<HTMLElement>("[data-l=clear]").onclick = () => view.clear();
     q<HTMLElement>("[data-l=ai]").onclick = () => {
-      let text = term.getSelection().trim();
-      if (!text) {
-        const b = term.buffer.active, lines: string[] = [];
-        for (let i = Math.max(0, b.length - 150); i < b.length; i++) lines.push(b.getLine(i)?.translateToString(true) ?? "");
-        text = lines.join("\n").trim();
-      }
+      const text = view.tail();
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи пода ${o.metadata.namespace}/${o.metadata.name} (${ctx!.context}):\n${text}` }));
+    };
+    drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
+    requestAnimationFrame(() => { fit.fit(); start(); });
+  }
+
+  /** Logs of every pod of a Deployment/StatefulSet/DaemonSet/ReplicaSet/Job, merged, one color per pod. */
+  function showWorkloadLogs(o: Obj) {
+    const containers: string[] = (o.spec?.template?.spec?.containers ?? []).map((c: Obj) => c.name);
+    drawerBody.innerHTML = `<div class="logs-pane">
+      <div class="logs-bar">
+        <select class="lc"><option value="">все контейнеры</option>${containers.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
+        <select class="lt"><option value="50">50 строк на под</option><option value="200" selected>200 строк на под</option><option value="1000">1000 строк на под</option></select>
+        <label class="muted"><input type="checkbox" class="lts" /> время</label>
+        <select class="lpod"><option value="">все поды</option></select>
+        <input class="lf" placeholder="фильтр…" spellcheck="false" />
+        <span class="spacer"></span>
+        <span class="lstate muted"></span>
+        <button class="ghost" data-l="ai" title="Отправить выделение (или последние 150 строк) в AI-панель">⇢ в AI</button>
+        <button class="ghost" data-l="clear">Очистить</button>
+      </div>
+      <div class="logs-term"></div></div>`;
+    const q = <T extends HTMLElement>(s: string) => drawerBody.querySelector<T>(s)!;
+    const term = new Terminal({ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 12, scrollback: 50000,
+      convertEol: true, disableStdin: true, theme: { background: "#0f1117", foreground: "#d6deeb", selectionBackground: "#2b3a55" } });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(q(".logs-term"));
+    const ro = new ResizeObserver(() => { if (q<HTMLElement>(".logs-term").clientWidth) fit.fit(); });
+    ro.observe(q(".logs-term"));
+
+    const id = `wlog${Date.now()}`;
+    const view = new LogView(term);
+    const state = q(".lstate"), podSel = q<HTMLSelectElement>(".lpod"), filter = q<HTMLInputElement>(".lf");
+    let unlisten: UnlistenFn[] = [];
+    // pod names share the workload prefix: show only the distinguishing tail
+    const short = (pod: string) => pod.startsWith(o.metadata.name + "-") ? pod.slice(o.metadata.name.length + 1) : pod;
+    let width = 8;
+    const stop = () => { invoke("k8s_logs_stop", { id }); unlisten.forEach((u) => u()); unlisten = []; };
+    const applyFilter = () => view.setFilter(filter.value, podSel.value);
+
+    const start = async () => {
+      stop();
+      view.clear();
+      state.textContent = "ищу поды…";
+      const showContainer = !q<HTMLSelectElement>(".lc").value && containers.length > 1;
+      unlisten = [
+        await listen<{ pod: string; container: string; line: string }[]>(`k8s-log-${id}`, (e) => {
+          view.add(e.payload.map((l) => {
+            const tag = showContainer ? `${short(l.pod)}/${l.container}` : short(l.pod);
+            width = Math.max(width, tag.length);
+            return { pod: l.pod, text: `\x1b[${podColor(l.pod)}m${tag.padEnd(width)}\x1b[0m \x1b[2m│\x1b[0m ${l.line}` };
+          }));
+        }),
+        await listen<string[]>(`k8s-log-pods-${id}`, (e) => {
+          const pods = e.payload;
+          state.textContent = pods.length ? `● ${pods.length} ${pods.length === 1 ? "под" : pods.length < 5 ? "пода" : "подов"}` : "подов нет";
+          state.title = pods.join("\n") + (pods.length > 40 ? "\n(логи читаются с первых 40)" : "");
+          const cur = podSel.value;
+          podSel.innerHTML = `<option value="">все поды</option>` + pods.map((p) => `<option value="${esc(p)}">${esc(short(p))}</option>`).join("");
+          podSel.value = pods.includes(cur) ? cur : "";
+        }),
+      ];
+      try {
+        await invoke("k8s_logs_workload_start", { ctx: ref(), id, req: {
+          kind: kind.id, namespace: o.metadata.namespace, name: o.metadata.name,
+          container: q<HTMLSelectElement>(".lc").value || null, tail: Number(q<HTMLSelectElement>(".lt").value),
+          timestamps: q<HTMLInputElement>(".lts").checked } });
+      } catch (e) {
+        state.textContent = "";
+        term.write(`\x1b[31m${String(e)}\x1b[0m\n`);
+      }
+    };
+    [".lc", ".lt", ".lts"].forEach((sel) => q(sel).addEventListener("change", start));
+    podSel.onchange = applyFilter;
+    let ft = 0;
+    filter.oninput = () => { clearTimeout(ft); ft = window.setTimeout(applyFilter, 150); };
+    q<HTMLElement>("[data-l=clear]").onclick = () => view.clear();
+    q<HTMLElement>("[data-l=ai]").onclick = () => {
+      const text = view.tail();
+      if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи ${kind.label} ${o.metadata.namespace}/${o.metadata.name}, все поды (${ctx!.context}):\n${text}` }));
     };
     drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
     requestAnimationFrame(() => { fit.fit(); start(); });

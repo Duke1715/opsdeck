@@ -367,3 +367,6 @@ dialog.mt-dialog { width: 560px; }
 pre.ro-text { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; background: var(--bg);
   font: 12.5px/1.5 "JetBrains Mono", "Fira Code", monospace; white-space: pre; }
 .drawer-body > .table-wrap { flex: 1; }
+.logs-bar .lf { width: 180px; padding: 3px 8px; }
+.logs-bar select { padding: 3px 6px; }
+.logs-bar .lstate { cursor: default; }
