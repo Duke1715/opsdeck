@@ -94,25 +94,21 @@ fn scan(dir: &Path, depth: u32, out: &mut Detected) {
             }
         } else if name.ends_with(".kdbx") {
             out.keepass.push(p.to_string_lossy().into_owned());
-        } else if name.eq_ignore_ascii_case("winbox") && is_executable(&p) {
+        } else if is_winbox_name(&name) && crate::store::is_executable(&p) {
             out.winbox.push(p.to_string_lossy().into_owned());
         }
     }
 }
 
-fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
-}
 
 pub fn detect() -> Detected {
     let mut out = Detected::default();
-    for bin in ["WinBox", "winbox"] {
+    for bin in ["WinBox", "winbox", "WinBox.exe", "winbox64.exe", "winbox.exe"] {
         if let Some(p) = std::env::var_os("PATH")
             .into_iter()
             .flat_map(|p| std::env::split_paths(&p).collect::<Vec<PathBuf>>())
             .map(|d| d.join(bin))
-            .find(|p| is_executable(p))
+            .find(|p| crate::store::is_executable(p))
         {
             out.winbox.push(p.to_string_lossy().into_owned());
         }
@@ -130,4 +126,11 @@ pub fn detect() -> Detected {
 #[tauri::command]
 pub async fn settings_detect() -> Detected {
     tauri::async_runtime::spawn_blocking(detect).await.unwrap_or_default()
+}
+
+/// "WinBox" on Linux/macOS, "winbox64.exe" / "WinBox.exe" on Windows.
+fn is_winbox_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    let stem = n.strip_suffix(".exe").unwrap_or(&n);
+    stem == "winbox" || stem == "winbox64"
 }

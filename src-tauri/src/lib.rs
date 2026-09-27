@@ -114,6 +114,8 @@ pub fn run() {
             alerts::alerts_config_set,
             alerts::alerts_poll_now,
             alerts::alerts_resolve,
+            alerts::alerts_test_source,
+            alerts::alerts_sources,
             ssh::ssh_list,
             ssh::ssh_keys,
             ssh::ssh_save,

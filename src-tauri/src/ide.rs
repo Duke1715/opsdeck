@@ -9,7 +9,6 @@ use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
@@ -53,13 +52,24 @@ fn lock_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("ide"))
 }
 
+#[cfg(target_os = "linux")]
+fn process_alive(pid: u64) -> bool {
+    PathBuf::from(format!("/proc/{pid}")).exists()
+}
+
+/// Without /proc we can't tell cheaply: keep the file (claude also checks the port is open).
+#[cfg(not(target_os = "linux"))]
+fn process_alive(_pid: u64) -> bool {
+    true
+}
+
 /// Drop lock files left by previous OpsDeck runs that crashed.
 fn remove_stale_locks(dir: &std::path::Path) {
     for e in fs::read_dir(dir).into_iter().flatten().flatten() {
         let p = e.path();
         let Ok(v) = fs::read_to_string(&p).map(|s| serde_json::from_str::<Value>(&s).unwrap_or_default()) else { continue };
         let pid = v["pid"].as_u64().unwrap_or(0);
-        if v["ideName"] == "OpsDeck" && !PathBuf::from(format!("/proc/{pid}")).exists() {
+        if v["ideName"] == "OpsDeck" && !process_alive(pid) {
             let _ = fs::remove_file(p);
         }
     }
@@ -98,7 +108,7 @@ fn write_lock(app: &AppHandle, port: u16) -> Result<(), String> {
     });
     let path = dir.join(format!("{port}.lock"));
     fs::write(&path, lock.to_string()).map_err(err)?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(err)?;
+    crate::store::restrict(&path, 0o600)?;
     *state.lock_path.lock().unwrap() = Some(path);
     Ok(())
 }
@@ -114,7 +124,10 @@ async fn connection(app: AppHandle, stream: tokio::net::TcpStream) {
     // only the CLI with the token from the lock file; browsers always send Origin
     let check = move |req: &Request, mut resp: Response| -> Result<Response, ErrorResponse> {
         let h = req.headers();
-        let authed = h.get("x-claude-code-ide-authorization").and_then(|v| v.to_str().ok()) == Some(token.as_str());
+        let authed = h
+            .get("x-claude-code-ide-authorization")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|t| crate::store::ct_eq(t, &token));
         if authed && h.get("origin").is_none() {
             // claude opens the socket with subprotocol "mcp" and drops it if the server doesn't echo it
             let wants_mcp = h

@@ -32,7 +32,8 @@ tauri-plugin-clipboard-manager = "2"
 zeroize = "1"
 uuid = { version = "1", features = ["v4"] }
 tokio-tungstenite = "0.30"
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+# secret-service (Linux), Keychain (macOS), Credential Manager (Windows)
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored", "apple-native", "windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # must match the versions tauri uses (embedded web panels reparent webviews in GTK)

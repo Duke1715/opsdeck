@@ -316,54 +316,107 @@ fn poll_url(c: &connectors::Connector) -> Option<String> {
     }
 }
 
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|e| e.to_string())
+}
+
+/// Current alerts of one source, with a human explanation on failure.
+async fn fetch_source(client: &reqwest::Client, kp: &KeepassState, c: &connectors::Connector) -> Result<Vec<Alert>, String> {
+    let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
+    let (user, pass) = connectors::credentials(kp, c)?;
+    if c.kind == "grafana" && pass.is_empty() {
+        return Err("не задан пароль или токен — Grafana не отдаёт алерты без авторизации".into());
+    }
+    let req = client.get(&url);
+    let req = match c.auth.as_str() {
+        "none" => req,
+        "token" => req.bearer_auth(&pass),
+        _ => req.basic_auth(&user, Some(&pass)),
+    };
+    let r = req.send().await.map_err(|e| format!("нет соединения ({e}) — проверьте URL и VPN"))?;
+    let status = r.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 => "HTTP 401: неверный логин/пароль или токен".to_string(),
+            403 => "HTTP 403: у пользователя/токена нет прав на чтение алертов (нужна роль Viewer или выше)".to_string(),
+            404 if c.kind == "grafana" => "HTTP 404: в Grafana не включён Grafana Alerting или это не Grafana (если алерты в Prometheus Alertmanager — добавьте коннектор Alertmanager)".to_string(),
+            code => format!("HTTP {code}"),
+        });
+    }
+    let body: Value = r.json().await.map_err(|e| format!("ответ не JSON ({e}) — проверьте URL"))?;
+    Ok(items_of(&body).into_iter().filter_map(|v| parse_item(v, &c.name)).collect())
+}
+
+/// Applies a fresh snapshot of one source: whatever of it vanished has been resolved.
+fn apply_snapshot(app: &AppHandle, source: &str, mut alerts: Vec<Alert>) {
+    let seen: HashSet<String> = alerts.iter().map(|a| a.fingerprint.clone()).collect();
+    {
+        let d = app.state::<AlertsState>();
+        let d = d.data.lock().unwrap();
+        for a in d.current.values().filter(|a| a.source == source && !seen.contains(&a.fingerprint)) {
+            let mut r = a.clone();
+            r.status = "resolved".into();
+            r.ends_at = now();
+            r.received_at = now();
+            alerts.push(r);
+        }
+    }
+    apply(app, alerts);
+}
+
 async fn poll_once(app: &AppHandle) -> Vec<String> {
     let kp = app.state::<KeepassState>();
-    let mut errors = Vec::new();
-    let client = match reqwest::Client::builder().timeout(Duration::from_secs(15)).build() {
+    let client = match http_client() {
         Ok(c) => c,
-        Err(e) => return vec![e.to_string()],
+        Err(e) => return vec![e],
     };
-    for c in connectors::all().unwrap_or_default() {
-        let Some(url) = poll_url(&c) else { continue };
-        let (user, pass) = match connectors::credentials(&kp, &c) {
-            Ok(x) => x,
-            Err(e) => { errors.push(format!("{}: {e}", c.name)); continue; }
-        };
-        // Grafana's API needs credentials; Alertmanager / feeds may be open
-        if c.kind == "grafana" && pass.is_empty() {
+    let mut errors = Vec::new();
+    let all = connectors::all().unwrap_or_default();
+    // alerts of deleted connectors: nobody will ever resolve them — move them to history
+    let orphans: Vec<Alert> = {
+        let names: HashSet<&str> = all.iter().map(|c| c.name.as_str()).collect();
+        let d = app.state::<AlertsState>();
+        let d = d.data.lock().unwrap();
+        d.current.values().filter(|a| !names.contains(a.source.as_str())).cloned().collect()
+    };
+    if !orphans.is_empty() {
+        apply(app, orphans.into_iter().map(|mut a| { a.status = "resolved".into(); a.ends_at = now(); a.received_at = now(); a }).collect());
+    }
+    for c in all {
+        if poll_url(&c).is_none() {
             continue;
         }
-        let req = client.get(&url);
-        let req = match c.auth.as_str() {
-            "none" => req,
-            "token" => req.bearer_auth(&pass),
-            _ => req.basic_auth(&user, Some(&pass)),
-        };
-        let body: Value = match req.send().await {
-            Ok(r) if r.status().is_success() => match r.json().await {
-                Ok(v) => v,
-                Err(e) => { errors.push(format!("{}: ответ не JSON ({e})", c.name)); continue; }
-            },
-            Ok(r) => { errors.push(format!("{}: HTTP {}", c.name, r.status())); continue; }
-            Err(e) => { errors.push(format!("{}: {e}", c.name)); continue; }
-        };
-        let mut alerts: Vec<Alert> = items_of(&body).into_iter().filter_map(|v| parse_item(v, &c.name)).collect();
-        // a poll is a snapshot: whatever of this source vanished has been resolved
-        let seen: HashSet<String> = alerts.iter().map(|a| a.fingerprint.clone()).collect();
-        {
-            let d = app.state::<AlertsState>();
-            let d = d.data.lock().unwrap();
-            for a in d.current.values().filter(|a| a.source == c.name && !seen.contains(&a.fingerprint)) {
-                let mut r = a.clone();
-                r.status = "resolved".into();
-                r.ends_at = now();
-                r.received_at = now();
-                alerts.push(r);
-            }
+        // a Grafana connector without credentials is just a web panel, not an alert source
+        if c.kind == "grafana" && c.auth == "none" {
+            continue;
         }
-        apply(app, alerts);
+        match fetch_source(&client, &kp, &c).await {
+            Ok(alerts) => apply_snapshot(app, &c.name, alerts),
+            Err(e) => errors.push(format!("{}: {e}", c.name)),
+        }
     }
     errors
+}
+
+/// "Save and check" in the connector dialog: fetch one source now.
+#[tauri::command]
+pub async fn alerts_test_source(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<usize, String> {
+    let c = connectors::all()?.into_iter().find(|c| c.id == id).ok_or("коннектор не найден")?;
+    let alerts = fetch_source(&http_client()?, &kp, &c).await?;
+    let n = alerts.len();
+    apply_snapshot(&app, &c.name, alerts);
+    Ok(n)
+}
+
+/// Whether any alert source is configured (for the empty state of the alerts view).
+#[tauri::command]
+pub fn alerts_sources() -> Vec<String> {
+    connectors::all()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| poll_url(c).is_some() && !(c.kind == "grafana" && c.auth == "none") || (c.kind == "ai"))
+        .map(|c| c.name)
+        .collect()
 }
 
 // ---------- push from local analyzers (127.0.0.1 only) ----------
@@ -375,6 +428,12 @@ async fn ingest(
     body: axum::body::Bytes,
 ) -> (axum::http::StatusCode, String) {
     use axum::http::StatusCode;
+    // DNS rebinding guard: a web page whose domain resolves to 127.0.0.1 would send its own Host
+    let host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+    if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
+        return (StatusCode::FORBIDDEN, "only local clients\n".into());
+    }
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -383,7 +442,7 @@ async fn ingest(
     let source = connectors::all()
         .unwrap_or_default()
         .into_iter()
-        .find(|c| c.kind == "ai" && c.ingest_token.len() >= 16 && c.ingest_token == token);
+        .find(|c| c.kind == "ai" && c.ingest_token.len() >= 16 && store::ct_eq(&c.ingest_token, token));
     let Some(source) = source else {
         return (StatusCode::UNAUTHORIZED, "unknown token: create an «AI / анализатор» connector in OpsDeck and use its token\n".into());
     };

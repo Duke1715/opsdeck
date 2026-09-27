@@ -14,7 +14,6 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -47,7 +46,7 @@ fn err(e: impl std::fmt::Display) -> String {
 fn imported_dir() -> Result<PathBuf, String> {
     let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("kubeconfigs");
     fs::create_dir_all(&dir).map_err(err)?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
+    crate::store::restrict(&dir, 0o700)?;
     Ok(dir)
 }
 
@@ -181,12 +180,12 @@ fn sanitize(s: &str) -> String {
 
 fn write_private(path: &Path, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(err)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(err)
+    crate::store::restrict(path, 0o600)
 }
 
 /// Import from pasted YAML or from a file path (drag & drop). Returns the number of contexts.
 #[tauri::command]
-pub fn k8s_import(name: Option<String>, yaml: Option<String>, path: Option<String>) -> Result<usize, String> {
+pub fn k8s_import(name: Option<String>, yaml: Option<String>, path: Option<String>) -> Result<ImportResult, String> {
     let (raw, default_name) = match (yaml, path) {
         (Some(y), _) if !y.trim().is_empty() => (y, "cluster".to_string()),
         (_, Some(p)) => {
@@ -210,7 +209,28 @@ pub fn k8s_import(name: Option<String>, yaml: Option<String>, path: Option<Strin
         return Err(format!("«{name}» уже импортирован — выберите другое имя"));
     }
     write_private(&target, &raw)?;
-    Ok(count)
+    Ok(ImportResult { count, exec: exec_commands(&cfg) })
+}
+
+#[derive(Serialize)]
+pub struct ImportResult {
+    count: usize,
+    /// commands the kubeconfig runs to get credentials (users[].user.exec) — worth a look
+    exec: Vec<String>,
+}
+
+fn exec_commands(cfg: &Value) -> Vec<String> {
+    cfg["users"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|u| {
+            let e = &u["user"]["exec"];
+            let cmd = e["command"].as_str()?;
+            let args: Vec<&str> = e["args"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            Some(format!("{cmd} {}", args.join(" ")).trim().to_string())
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -276,7 +296,7 @@ pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, S
     let out = single_context(&src, &ctx.context, namespace.as_deref())?;
     let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("run");
     fs::create_dir_all(&dir).map_err(err)?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(err)?;
+    crate::store::restrict(&dir, 0o700)?;
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let path = dir.join(format!("{}.yaml", sanitize(&format!("{stem}-{}", ctx.context))));
     write_private(&path, &serde_yaml_ng::to_string(&out).map_err(err)?)?;

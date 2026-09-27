@@ -57,7 +57,10 @@ fn build(req: &ToolRequest) -> Result<(&'static str, Vec<String>), String> {
     let t = req.target.clone();
 
     Ok(match req.tool.as_str() {
+        // Windows tools take different flags
+        "ping" if cfg!(windows) => ("ping", vec!["-n".into(), count, t]),
         "ping" => ("ping", vec!["-c".into(), count, t]),
+        "traceroute" if cfg!(windows) => ("tracert", vec!["-w".into(), "2000".into(), t]),
         "traceroute" => ("traceroute", vec!["-w".into(), "2".into(), t]),
         "mtr" => ("mtr", vec!["-r".into(), "-w".into(), "-b".into(), "-c".into(), count, t]),
         "dig" => {
@@ -72,10 +75,6 @@ fn build(req: &ToolRequest) -> Result<(&'static str, Vec<String>), String> {
             let mut a = vec![format!("-type={record}"), t];
             a.extend(server);
             ("nslookup", a)
-        }
-        "port" => {
-            let port = req.port.ok_or("port required")?;
-            ("nc", vec!["-zv".into(), "-w".into(), "3".into(), t, port.to_string()])
         }
         _ => return Err("unknown tool".into()),
     })
@@ -97,6 +96,9 @@ pub async fn tool_run(
     run_id: String,
     req: ToolRequest,
 ) -> Result<String, String> {
+    if req.tool == "port" {
+        return port_check(app, run_id, req).await;
+    }
     let (program, args) = build(&req)?;
     let cmdline = format!("{program} {}", args.join(" "));
 
@@ -132,4 +134,31 @@ pub fn tool_stop(state: State<ToolState>, run_id: String) {
     if let Some(tx) = state.running.lock().unwrap().remove(&run_id) {
         let _ = tx.send(());
     }
+}
+
+/// TCP connect check done natively (no `nc` needed, works on every OS).
+async fn port_check(app: AppHandle, run_id: String, req: ToolRequest) -> Result<String, String> {
+    if !valid_host(&req.target) {
+        return Err("invalid target".into());
+    }
+    let port = req.port.ok_or("port required")?;
+    let target = req.target.clone();
+    let cmdline = format!("tcp connect {target}:{port}");
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::net::TcpStream::connect((target.as_str(), port)),
+        )
+        .await;
+        let ms = started.elapsed().as_millis();
+        let (text, code, stream) = match res {
+            Ok(Ok(s)) => (format!("{target}:{port} открыт ({}, {ms} мс)", s.peer_addr().map(|a| a.to_string()).unwrap_or_default()), 0, "out"),
+            Ok(Err(e)) => (format!("{target}:{port} закрыт или недоступен: {e}"), 1, "err"),
+            Err(_) => (format!("{target}:{port}: нет ответа за 3 с (фильтруется?)"), 1, "err"),
+        };
+        let _ = app.emit(&format!("tool-line-{run_id}"), Line { stream, text });
+        let _ = app.emit(&format!("tool-exit-{run_id}"), Some(code));
+    });
+    Ok(cmdline)
 }

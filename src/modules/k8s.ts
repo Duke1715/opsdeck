@@ -1162,6 +1162,15 @@ export function mountK8s(root: HTMLElement) {
 
   // ----- import -----
 
+  type ImportResult = { count: number; exec: string[] };
+  /** kubeconfigs can run programs to fetch credentials: make that visible for imported files. */
+  function warnExec(cmds: string[]) {
+    if (!cmds.length) return;
+    ask("Kubeconfig запускает команды",
+      `При подключении к этому кластеру будет выполнено: ${cmds.join(" ; ")}. Так работают aws/gcloud/kubelogin и т.п. ` +
+      `Если файл получен не из доверенного источника — удалите контекст (🗑) и не подключайтесь.`, { ok: "Понятно" });
+  }
+
   const dialog = $<HTMLDialogElement>(".import-dialog");
   const dform = dialog.querySelector("form")!;
   const sysList = dialog.querySelector<HTMLElement>(".sys-list")!;
@@ -1201,9 +1210,10 @@ export function mountK8s(root: HTMLElement) {
     e.preventDefault();
     const f = (n: string) => (dform.elements.namedItem(n) as HTMLInputElement).value;
     try {
-      const n = await invoke<number>("k8s_import", { name: f("name") || null, yaml: f("yaml"), path: null });
+      const r = await invoke<ImportResult>("k8s_import", { name: f("name") || null, yaml: f("yaml"), path: null });
       dialog.close();
-      toast(`Импортировано контекстов: ${n}`);
+      toast(`Импортировано контекстов: ${r.count}`);
+      warnExec(r.exec);
       loadContexts();
     } catch (err) { dform.querySelector<HTMLElement>(".form-err")!.textContent = String(err); }
   });
@@ -1215,8 +1225,9 @@ export function mountK8s(root: HTMLElement) {
     root.classList.remove("dragover");
     for (const path of e.payload.paths) {
       try {
-        const n = await invoke<number>("k8s_import", { name: null, yaml: null, path });
-        toast(`${path.split("/").pop()}: контекстов ${n}`);
+        const r = await invoke<ImportResult>("k8s_import", { name: null, yaml: null, path });
+        toast(`${path.split("/").pop()}: контекстов ${r.count}`);
+        warnExec(r.exec);
       } catch (err) { toast(`${path.split("/").pop()}: ${err}`, "err"); }
     }
     loadContexts();

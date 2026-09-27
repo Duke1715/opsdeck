@@ -52,9 +52,12 @@ export function mountConnectors(root: HTMLElement) {
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
           <p class="muted hint"></p>
           <div class="ai-help" hidden></div>
+          <div class="src-help" hidden></div>
+          <div class="check-result" hidden></div>
           <p class="err form-err"></p>
           <div class="actions">
             <button value="cancel" formnovalidate>Отмена</button>
+            <button value="check" class="ghost" data-check hidden title="Сохранить и сразу опросить источник алертов">Сохранить и проверить</button>
             <button value="save" class="primary">Сохранить</button>
           </div>
         </form>
@@ -98,7 +101,35 @@ export function mountConnectors(root: HTMLElement) {
     f("url").placeholder = ai ? "необязательно: http://analyzer:8080/findings" : "https://grafana.example.com";
     form.querySelector<HTMLElement>(".url-label")!.textContent = ai ? "URL ленты (pull, необязательно)" : "URL";
     renderAiHelp();
+    renderSourceHelp();
   };
+
+  /** Step-by-step setup for alert sources, shown right in the dialog. */
+  function renderSourceHelp() {
+    const kind = f("kind").value, auth = f("auth").value;
+    const box = form.querySelector<HTMLElement>(".src-help")!;
+    const canCheck = kind === "grafana" || kind === "alertmanager" || (kind === "ai" && !!f("url").value.trim());
+    form.querySelector<HTMLElement>("[data-check]")!.hidden = !canCheck || (kind === "grafana" && auth === "none");
+    box.hidden = kind !== "grafana" && kind !== "alertmanager";
+    if (kind === "grafana") {
+      box.innerHTML = `<div class="side-head small">Сбор алертов из этой Grafana</div>
+        <ol>
+          <li>В самой Grafana ничего настраивать не нужно (ни contact point, ни webhook) — OpsDeck сам забирает алерты раз в минуту.</li>
+          <li>Нужен доступ на чтение. Проще всего токен: Grafana → <b>Administration → Users and access → Service accounts</b> → <b>Add service account</b> (роль <b>Viewer</b>) → <b>Add service account token</b> → скопируйте <code>glsa_…</code>.</li>
+          <li>Здесь: Авторизация = <b>токен</b>, вставьте его, нажмите <b>Сохранить и проверить</b>.</li>
+        </ol>
+        <p class="muted">${auth === "token"
+          ? "С токеном собираются только алерты; сама панель откроется без автовхода."
+          : auth === "none"
+            ? "Без авторизации алерты не собираются — это будет просто веб-панель."
+            : "Логин/пароль (или KeePass) дают и автовход в панель, и сбор алертов."}</p>`;
+    } else if (kind === "alertmanager") {
+      box.innerHTML = `<div class="side-head small">Сбор алертов из Alertmanager</div>
+        <ol><li>URL — адрес Alertmanager, например <code>http://alertmanager.monitoring:9093</code> (доступный с этого компьютера, через VPN тоже).</li>
+        <li>Если перед ним нет авторизации — оставьте «без автологина»; иначе логин/пароль или токен.</li>
+        <li><b>Сохранить и проверить</b>.</li></ol>`;
+    }
+  }
 
   let ingestPort = 9095;
   invoke<{ ingest_port: number }>("alerts_config_get").then((c) => (ingestPort = c.ingest_port)).catch(() => {});
@@ -149,12 +180,42 @@ export function mountConnectors(root: HTMLElement) {
   });
   f("kind").onchange = syncForm;
   f("auth").onchange = syncForm;
+  f("url").addEventListener("input", () => renderSourceHelp());
 
-  const openDialog = (c: Connector | null) => {
+  /** Save, then poll this source once and show the outcome in the dialog. */
+  async function saveAndCheck() {
+    const res = form.querySelector<HTMLElement>(".check-result")!;
+    res.hidden = false;
+    res.className = "check-result";
+    res.textContent = "Сохраняю и опрашиваю…";
+    const connector: Connector = {
+      id: editing?.id ?? crypto.randomUUID(),
+      kind: f("kind").value, name: f("name").value.trim(), url: f("url").value.trim(),
+      username: f("username").value.trim(), auth: f("auth").value,
+      keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
+      ingest_token: editing?.ingest_token ?? "",
+    };
+    if (!connector.name) connector.name = new URL(connector.url || "http://x").hostname;
+    try {
+      await invoke("connector_save", { connector, secret: f("secret").value || null });
+      editing = (await invoke<Connector[]>("connectors_list")).find((c) => c.id === connector.id) ?? null;
+      f("secret").value = "";
+      refresh();
+      const n = await invoke<number>("alerts_test_source", { id: connector.id });
+      res.classList.add("ok");
+      res.textContent = `✓ Работает: активных алертов сейчас ${n}. Они в разделе 🔔, дальше опрос идёт сам.`;
+    } catch (err) {
+      res.classList.add("bad");
+      res.textContent = `✗ ${err}`;
+    }
+  }
+
+  const openDialog = (c: Connector | null, presetKind?: string) => {
     editing = c;
     form.reset();
+    form.querySelector<HTMLElement>(".check-result")!.hidden = true;
     form.querySelector<HTMLElement>(".form-err")!.textContent = "";
-    f("kind").value = c?.kind ?? "grafana";
+    f("kind").value = c?.kind ?? presetKind ?? "grafana";
     f("name").value = c?.name ?? "";
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
@@ -165,7 +226,12 @@ export function mountConnectors(root: HTMLElement) {
   };
 
   form.addEventListener("submit", async (e) => {
-    if ((e.submitter as HTMLButtonElement | null)?.value !== "save") return;
+    const action = (e.submitter as HTMLButtonElement | null)?.value;
+    if (action === "check") {
+      e.preventDefault();
+      return saveAndCheck();
+    }
+    if (action !== "save") return;
     e.preventDefault();
     const connector: Connector = {
       id: editing?.id ?? crypto.randomUUID(),
@@ -341,6 +407,12 @@ export function mountConnectors(root: HTMLElement) {
   window.addEventListener("overlay-close", () => { overlays = Math.max(0, overlays - 1); place(); });
 
   root.querySelector<HTMLElement>("[data-act=add]")!.onclick = () => openDialog(null);
+  // from the alerts view: "add Grafana / Alertmanager / AI analyzer"
+  window.addEventListener("add-connector", (e) => {
+    window.dispatchEvent(new CustomEvent("show-view", { detail: "web" }));
+    activate("home");
+    openDialog(null, (e as CustomEvent<string>).detail);
+  });
   registerProvider(async () => (await invoke<Connector[]>("connectors_list")).flatMap((c) => [
     { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
     { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,

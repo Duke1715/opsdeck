@@ -162,9 +162,7 @@ pub async fn note_open_obsidian(path: String) -> Result<(), String> {
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let file = path.strip_suffix(".md").unwrap_or(&path);
     let url = Url::parse_with_params("obsidian://open", &[("vault", name.as_str()), ("file", file)]).map_err(err)?;
-    let mut child = std::process::Command::new("xdg-open").arg(url.as_str()).spawn().map_err(err)?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
+    crate::store::open_with_system(url.as_str())
 }
 
 /// Today's daily note (Obsidian "Daily notes" plugin settings: folder + YYYY/MM/DD format).

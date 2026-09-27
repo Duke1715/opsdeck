@@ -45,7 +45,7 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     let plain_shell = req.program.is_none();
     let program = req
         .program
-        .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()));
+        .unwrap_or_else(default_shell);
     let mut cmd = CommandBuilder::new(&program);
     if plain_shell {
         // best effort: without integration the tab still works, just without command blocks
@@ -98,6 +98,14 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .unwrap()
         .insert(req.id, Session { master: pair.master, writer, child });
     Ok(())
+}
+
+/// $SHELL on Unix; PowerShell on Windows.
+fn default_shell() -> String {
+    #[cfg(windows)]
+    return "powershell.exe".into();
+    #[cfg(not(windows))]
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
 }
 
 const BASH_SI: &str = include_str!("../shell/bash-integration.sh");

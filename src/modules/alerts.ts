@@ -103,7 +103,8 @@ export function mountAlerts(root: HTMLElement) {
     const cur = data.current.filter(match).sort((a, b) =>
       Number(a.acked || a.silenced) - Number(b.acked || b.silenced) || sevRank(a.severity) - sevRank(b.severity) || b.starts_at.localeCompare(a.starts_at));
     current.innerHTML = cur.length ? cur.map(card).join("")
-      : `<div class="al-empty">${data.current.length ? "Ничего не подходит под фильтр" : "✓ Горящих алертов нет"}</div>`;
+      : !sources.length ? onboarding()
+      : `<div class="al-empty">${data.current.length ? "Ничего не подходит под фильтр" : `✓ Горящих алертов нет · источники: ${esc(sources.join(", "))}`}</div>`;
     const acked = data.current.filter((a) => a.acked || a.silenced).length;
     $(".al-summary").textContent = `горит ${data.firing}${acked ? ` · просмотрено/заглушено ${acked}` : ""}`;
     hist.innerHTML = data.history.filter(match).slice(0, 300).map((a) => `<tr>
@@ -113,7 +114,28 @@ export function mountAlerts(root: HTMLElement) {
       || `<tr><td class="muted" colspan="6">Пока пусто</td></tr>`;
   }
 
+  let sources: string[] = [];
+
+  /** No sources yet: how to connect, with buttons that open the right connector dialog. */
+  function onboarding() {
+    return `<div class="al-onboard">
+      <h3>Откуда брать алерты</h3>
+      <p class="muted">OpsDeck сам опрашивает источники — в Grafana/Alertmanager ничего настраивать не нужно, на этот компьютер ничего не присылается.</p>
+      <ol>
+        <li><b>Grafana</b>: в Grafana создайте токен — Administration → Users and access → Service accounts → Add service account (роль Viewer) → Add service account token. Затем здесь «＋ Grafana», авторизация «токен», «Сохранить и проверить».</li>
+        <li><b>Prometheus Alertmanager</b>: «＋ Alertmanager», URL вида http://alertmanager:9093.</li>
+        <li><b>Свой AI-анализатор</b>: «＋ AI-анализатор» — в карточке будет адрес, токен и пример curl.</li>
+      </ol>
+      <div class="row">
+        <button class="primary" data-add="grafana">＋ Grafana</button>
+        <button data-add="alertmanager">＋ Alertmanager</button>
+        <button data-add="ai">＋ AI-анализатор</button>
+      </div>
+    </div>`;
+  }
+
   async function load() {
+    sources = await invoke<string[]>("alerts_sources").catch(() => sources);
     data = await invoke<View>("alerts_get", { historyLimit: 300 }).catch(() => data);
     draw();
   }
@@ -140,6 +162,8 @@ export function mountAlerts(root: HTMLElement) {
 
   root.addEventListener("click", async (e) => {
     const t = e.target as HTMLElement;
+    const add = t.closest<HTMLElement>("[data-add]")?.dataset.add;
+    if (add) return window.dispatchEvent(new CustomEvent("add-connector", { detail: add }));
     const url = t.closest<HTMLElement>("[data-url]")?.dataset.url;
     if (url) return window.dispatchEvent(new CustomEvent("open-url", { detail: url }));
     const act = t.closest<HTMLElement>("[data-a]")?.dataset.a;

@@ -50,7 +50,16 @@ fn load() -> Result<Vec<Connector>, String> {
 
 #[tauri::command]
 pub fn connectors_list() -> Result<Vec<Connector>, String> {
-    load()
+    let mut list = load()?;
+    // older configs could keep a pasted token in the login field (plain text on disk):
+    // token auth never uses the login, so drop it — the token itself is in the keyring
+    if list.iter().any(|c| c.auth == "token" && !c.username.is_empty()) {
+        for c in list.iter_mut().filter(|c| c.auth == "token") {
+            c.username.clear();
+        }
+        store::save_json(FILE, &list)?;
+    }
+    Ok(list)
 }
 
 /// `secret`: Some(non-empty) replaces the stored secret, None/empty keeps the existing one.
@@ -65,6 +74,9 @@ pub fn connector_save(mut connector: Connector, secret: Option<String>) -> Resul
         if !matches!(url.scheme(), "http" | "https") {
             return Err("URL must be http(s)".into());
         }
+    }
+    if connector.auth == "token" {
+        connector.username.clear(); // the login is unused with a token; never keep secrets here
     }
     if connector.kind == "ai" && connector.ingest_token.len() < 16 {
         connector.ingest_token = load()?
@@ -175,12 +187,14 @@ fn login_script(c: &Connector, url: &Url, secret: &str) -> String {
 
 const LOGIN_JS: &str = r#"
 if (location.origin !== cfg.origin) return;
+// keep the browser's own fetch: page scripts loaded later can't wrap it to see the credentials
+const nativeFetch = window.fetch.bind(window);
 const path = location.pathname.replace(/\/+$/, '');
 // retry at most once a minute so a wrong password doesn't loop
 const KEY = '__opsdeck_login';
 const last = Number(sessionStorage.getItem(KEY) || 0);
 const mayTry = () => Date.now() - last > 60000 && (sessionStorage.setItem(KEY, String(Date.now())), true);
-const post = (url, body) => fetch(url, {
+const post = (url, body) => nativeFetch(url, {
   method: 'POST', credentials: 'include',
   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });

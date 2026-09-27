@@ -8,7 +8,7 @@ const TOOLS: Record<string, { label: string; fields: ("count" | "server" | "reco
   traceroute: { label: "traceroute", fields: [] },
   dig: { label: "dig", fields: ["record", "server"] },
   nslookup: { label: "nslookup", fields: ["record", "server"] },
-  port: { label: "TCP порт (nc)", fields: ["port"] },
+  port: { label: "TCP-порт", fields: ["port"] },
 };
 const RECORDS = ["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "SRV", "PTR", "CAA", "ANY"];
 

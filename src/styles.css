@@ -460,3 +460,13 @@ dialog.help-dialog[open] { display: flex; }
 .help-body code { background: var(--panel-2); padding: 0 4px; border-radius: 4px; font-size: 12px; }
 kbd { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px;
   border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+.src-help { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); font-size: 12.5px; }
+.src-help ol, .al-onboard ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.src-help p { margin: 0; }
+.src-help code, .al-onboard code { background: var(--panel-2); padding: 0 4px; border-radius: 4px; }
+.check-result { padding: 8px 12px; border-radius: 6px; background: var(--panel-2); font-size: 12.5px; }
+.check-result.ok { color: #98d982; border-left: 3px solid #98d982; }
+.check-result.bad { color: var(--danger); border-left: 3px solid var(--danger); }
+.al-onboard { padding: 18px 22px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; line-height: 1.5; }
+.al-onboard h3, .al-onboard p { margin: 0; }
+.help-body ol { margin: 4px 0; padding-left: 20px; } .help-body ol li { margin: 3px 0; }

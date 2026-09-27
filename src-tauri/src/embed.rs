@@ -171,7 +171,5 @@ pub fn open_external(url: String) -> Result<(), String> {
     if !matches!(u.scheme(), "http" | "https") {
         return Err("только http(s)".into());
     }
-    let mut child = std::process::Command::new("xdg-open").arg(u.as_str()).spawn().map_err(|e| e.to_string())?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
+    crate::store::open_with_system(u.as_str())
 }
