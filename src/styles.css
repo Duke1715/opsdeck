@@ -429,3 +429,15 @@ a.dlink:hover { text-decoration: underline; }
 .al-clear { padding: 0 8px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .al-history td.wrap { white-space: normal; }
 .al-filter { width: 200px; }
+.card.kind-alertmanager .card-kind { color: #e6522c; }
+.card.kind-ai .card-kind { color: #c678dd; }
+.web-tabs .dot.kind-alertmanager { background: #e6522c; }
+.ai-help { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.ai-help p { margin: 0; font-size: 12px; }
+.ai-help .kv { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.ai-help .kv > span:first-child { width: 52px; color: var(--muted); flex: none; }
+.ai-help code { font: 12px "JetBrains Mono", monospace; background: var(--panel-2); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+.ai-help pre { margin: 4px 0 0; padding: 8px; background: var(--panel-2); border-radius: 6px; font: 11.5px/1.45 "JetBrains Mono", monospace; white-space: pre-wrap; word-break: break-all; }
+.ai-help summary { cursor: pointer; font-size: 12px; }
+dialog.conn-dialog { width: 600px; max-height: 90vh; overflow: auto; }
+.badge.ai { color: #c678dd; border-color: #c678dd66; }

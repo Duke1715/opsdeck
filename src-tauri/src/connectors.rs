@@ -15,7 +15,7 @@ const FILE: &str = "connectors.json";
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Connector {
     pub id: String,
-    /// grafana | argocd | gitlab | generic
+    /// grafana | argocd | gitlab | alertmanager | ai | generic
     pub kind: String,
     pub name: String,
     pub url: String,
@@ -27,6 +27,13 @@ pub struct Connector {
     /// KeePass entry uuid when auth == "keepass"
     #[serde(default)]
     pub keepass_entry: String,
+    /// kind "ai": token the analyzer uses to push findings to OpsDeck's local ingest endpoint
+    #[serde(default)]
+    pub ingest_token: String,
+}
+
+fn new_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 fn default_auth() -> String {
@@ -48,13 +55,23 @@ pub fn connectors_list() -> Result<Vec<Connector>, String> {
 
 /// `secret`: Some(non-empty) replaces the stored secret, None/empty keeps the existing one.
 #[tauri::command]
-pub fn connector_save(connector: Connector, secret: Option<String>) -> Result<(), String> {
+pub fn connector_save(mut connector: Connector, secret: Option<String>) -> Result<(), String> {
     if !store::valid_id(&connector.id) {
         return Err("invalid id".into());
     }
-    let url = Url::parse(&connector.url).map_err(|e| format!("bad URL: {e}"))?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err("URL must be http(s)".into());
+    // an AI analyzer may only push (no feed URL to poll)
+    if !(connector.kind == "ai" && connector.url.trim().is_empty()) {
+        let url = Url::parse(&connector.url).map_err(|e| format!("bad URL: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err("URL must be http(s)".into());
+        }
+    }
+    if connector.kind == "ai" && connector.ingest_token.len() < 16 {
+        connector.ingest_token = load()?
+            .into_iter()
+            .find(|c| c.id == connector.id && c.ingest_token.len() >= 16)
+            .map(|c| c.ingest_token)
+            .unwrap_or_else(new_token);
     }
     if connector.auth == "keepass" && connector.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
@@ -68,6 +85,17 @@ pub fn connector_save(connector: Connector, secret: Option<String>) -> Result<()
         None => list.push(connector),
     }
     store::save_json(FILE, &list)
+}
+
+/// New push token for an AI connector (the old one stops working immediately).
+#[tauri::command]
+pub fn connector_regen_token(id: String) -> Result<String, String> {
+    let mut list = load()?;
+    let c = list.iter_mut().find(|c| c.id == id && c.kind == "ai").ok_or("AI-коннектор не найден")?;
+    c.ingest_token = new_token();
+    let token = c.ingest_token.clone();
+    store::save_json(FILE, &list)?;
+    Ok(token)
 }
 
 #[tauri::command]

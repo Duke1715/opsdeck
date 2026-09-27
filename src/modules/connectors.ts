@@ -3,12 +3,14 @@ import { pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 
-type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string };
+type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
   argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
   gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
+  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в 🔔." },
+  ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
 const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", password: "логин/пароль", token: "токен", none: "без автологина" };
@@ -41,12 +43,13 @@ export function mountConnectors(root: HTMLElement) {
           <h3>Коннектор</h3>
           <label>Тип <select name="kind"></select></label>
           <label>Название <input name="name" required placeholder="prod grafana" /></label>
-          <label>URL <input name="url" type="url" required placeholder="https://grafana.example.com" /></label>
+          <label><span class="url-label">URL</span> <input name="url" type="url" required placeholder="https://grafana.example.com" /></label>
           <label>Авторизация <select name="auth"></select></label>
           <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <label data-a="user">Логин <input name="username" autocomplete="off" /></label>
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
           <p class="muted hint"></p>
+          <div class="ai-help" hidden></div>
           <p class="err form-err"></p>
           <div class="actions">
             <button value="cancel" formnovalidate>Отмена</button>
@@ -88,7 +91,60 @@ export function mountConnectors(root: HTMLElement) {
     form.querySelector<HTMLElement>(".secret-label")!.textContent = auth === "token" ? "Токен" : "Пароль";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector<HTMLElement>(".hint")!.textContent = kind.hint;
+    const ai = f("kind").value === "ai";
+    f("url").required = !ai;
+    f("url").placeholder = ai ? "необязательно: http://analyzer:8080/findings" : "https://grafana.example.com";
+    form.querySelector<HTMLElement>(".url-label")!.textContent = ai ? "URL ленты (pull, необязательно)" : "URL";
+    renderAiHelp();
   };
+
+  let ingestPort = 9095;
+  invoke<{ ingest_port: number }>("alerts_config_get").then((c) => (ingestPort = c.ingest_port)).catch(() => {});
+
+  /** Connection guide for an AI analyzer: push to loopback with the connector's token, or pull a feed. */
+  function renderAiHelp() {
+    const box = form.querySelector<HTMLElement>(".ai-help")!;
+    box.hidden = f("kind").value !== "ai";
+    if (box.hidden) return;
+    const token = editing?.ingest_token;
+    const endpoint = `http://127.0.0.1:${ingestPort}/api/v1/findings`;
+    const curl = `curl -sS ${endpoint} \\
+  -H "Authorization: Bearer ${token ?? "<токен>"}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Всплеск 5xx в ingress","severity":"warning","summary":"500-е ошибки выросли в 8 раз за 10 минут","labels":{"namespace":"prod","app":"api"}}'`;
+    const format = `{
+  "title": "Короткий заголовок",           // обязательно
+  "severity": "critical | warning | info",
+  "summary": "одна строка",
+  "details": "подробный разбор, можно многострочно",
+  "labels": {"namespace": "prod", "pod": "api-7d9f"},
+  "links": [{"title": "Grafana", "url": "https://..."}],
+  "id": "стабильный-id",                    // повтор с тем же id обновит находку
+  "status": "firing"                        // "resolved" — закрыть
+}`;
+    box.innerHTML = `
+      <div class="side-head small">Push — анализатор на этом компьютере</div>
+      <p class="muted">OpsDeck принимает находки только с 127.0.0.1 (из сети недоступен). Можно слать массив или {"findings": [...]}; алерты в формате Alertmanager — на /api/v1/alerts.</p>
+      <div class="kv"><span>Адрес</span><code>${esc(endpoint)}</code><button type="button" class="icon" data-copy="${esc(endpoint)}" title="Скопировать">⧉</button></div>
+      <div class="kv"><span>Токен</span>${token
+        ? `<code>${esc(token)}</code><button type="button" class="icon" data-copy="${esc(token)}" title="Скопировать">⧉</button><button type="button" class="ghost" data-regen>новый</button>`
+        : `<span class="muted">появится после сохранения</span>`}</div>
+      <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">⧉</button></div><pre>${esc(curl)}</pre></div>
+      <details><summary class="muted">Формат находки</summary><pre>${esc(format)}</pre></details>
+      <div class="side-head small">Pull — анализатор на другой машине</div>
+      <p class="muted">Укажите выше URL, по которому он отдаёт JSON с теми же объектами (массив или {"findings": [...]}). OpsDeck будет опрашивать его вместе с Grafana (интервал — в ⚙ раздела 🔔); находки, пропавшие из ленты, закрываются. Авторизация — как выбрано выше.</p>`;
+  }
+
+  form.addEventListener("click", async (e) => {
+    const t = e.target as HTMLElement;
+    const copy = t.closest<HTMLElement>("[data-copy]")?.dataset.copy;
+    if (copy) { await invoke("clip_write", { text: copy }); toast("Скопировано"); return; }
+    if (t.closest("[data-regen]") && editing) {
+      if ((await ask("Новый токен", "Старый токен перестанет работать сразу. Продолжить?", { ok: "Сменить" })) === null) return;
+      editing.ingest_token = await invoke<string>("connector_regen_token", { id: editing.id });
+      renderAiHelp();
+    }
+  });
   f("kind").onchange = syncForm;
   f("auth").onchange = syncForm;
 
@@ -114,11 +170,21 @@ export function mountConnectors(root: HTMLElement) {
       kind: f("kind").value, name: f("name").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
+      ingest_token: editing?.ingest_token ?? "",
     };
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null });
       // settings changed: the embedded panel is recreated with them on next show
       if (editing) invoke("web_embed_close", { id: connector.id }).catch(() => {});
+      if (connector.kind === "ai" && !editing?.ingest_token) {
+        // first save of an analyzer: keep the dialog open to show its token and the curl example
+        const saved = (await invoke<Connector[]>("connectors_list")).find((c) => c.id === connector.id);
+        editing = saved ?? null;
+        renderAiHelp();
+        toast("Сохранено — ниже токен и пример подключения");
+        refresh();
+        return;
+      }
       dialog.close();
       refresh();
     } catch (err) {
@@ -147,7 +213,9 @@ export function mountConnectors(root: HTMLElement) {
         </div>`;
       card.querySelector(".card-kind")!.textContent = KINDS[c.kind]?.label ?? c.kind;
       card.querySelector(".card-name")!.textContent = c.name;
-      card.querySelector(".card-url")!.textContent = c.url;
+      card.querySelector(".card-url")!.textContent = c.url || (c.kind === "ai" ? `push → 127.0.0.1:${ingestPort}` : "");
+      if (!c.url || c.kind === "ai") card.querySelectorAll<HTMLElement>("[data-act=open], [data-act=window]").forEach((b) => b.remove());
+      if (c.kind === "ai") card.querySelector<HTMLElement>("[data-act=edit]")!.textContent = "Подключение";
       card.querySelector<HTMLElement>("[data-act=open]")!.onclick = () => openTab(c);
       card.querySelector<HTMLElement>("[data-act=window]")!.onclick = () =>
         invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err"));

@@ -1,6 +1,10 @@
-//! Alerts from Grafana, pulled: OpsDeck periodically GETs Grafana's Alertmanager API for every
-//! Grafana connector with credentials (nothing listens on this machine, so a changing IP or NAT
-//! doesn't matter). Current alerts are keyed by fingerprint; a bounded event history is kept on disk.
+//! Alerts and AI findings.
+//! - pull (main path): OpsDeck periodically GETs Grafana's Alertmanager API, Prometheus
+//!   Alertmanager `/api/v2/alerts`, and "AI feed" URLs of the connectors — nothing needs to reach
+//!   this machine, so a changing IP or NAT doesn't matter;
+//! - push, loopback only: a local analyzer (log/alert AI running on this machine) POSTs findings
+//!   or alerts to 127.0.0.1 with its connector's token.
+//! Current items are keyed by fingerprint; a bounded event history is kept on disk.
 
 use crate::{connectors, keepass::KeepassState, store};
 use serde::{Deserialize, Serialize};
@@ -21,6 +25,9 @@ const HISTORY_CAP: usize = 1000;
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AlertsConfig {
+    /// loopback ingest endpoint for local analyzers
+    pub ingest_enabled: bool,
+    pub ingest_port: u16,
     pub poll_enabled: bool,
     pub poll_seconds: u64,
     pub notify: bool,
@@ -30,6 +37,8 @@ pub struct AlertsConfig {
 impl Default for AlertsConfig {
     fn default() -> Self {
         Self {
+            ingest_enabled: true,
+            ingest_port: 9095,
             poll_enabled: true,
             poll_seconds: 60,
             notify: true,
@@ -39,12 +48,22 @@ impl Default for AlertsConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+pub struct Link {
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct Alert {
+    /// "alert" (Alertmanager/Grafana) or "ai" (finding from an analyzer)
+    pub kind: String,
+    pub links: Vec<Link>,
     pub fingerprint: String,
     /// firing | resolved
     pub status: String,
     pub silenced: bool,
-    /// name of the Grafana connector it was polled from
+    /// name of the connector it came from
     pub source: String,
     pub name: String,
     pub severity: String,
@@ -72,6 +91,7 @@ struct Data {
 #[derive(Default)]
 pub struct AlertsState {
     data: Mutex<Data>,
+    ingest_stop: Mutex<Option<oneshot::Sender<()>>>,
     poll_stop: Mutex<Option<oneshot::Sender<()>>>,
 }
 
@@ -116,6 +136,8 @@ fn parse_alert(a: &Value, source: &str) -> Alert {
     };
     let ends = s(&a["endsAt"]);
     Alert {
+        kind: "alert".into(),
+        links: Vec::new(),
         fingerprint,
         status,
         silenced,
@@ -136,6 +158,76 @@ fn parse_alert(a: &Value, source: &str) -> Alert {
         annotations,
         acked: false,
     }
+}
+
+fn fnv(s: &str) -> String {
+    format!("{:x}", s.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3)))
+}
+
+/// A finding from an AI analyzer:
+/// {id?, title, severity?, summary?, details?, status?: firing|resolved, labels?, links?: [{title,url}], time?}
+fn parse_finding(v: &Value, source: &str) -> Option<Alert> {
+    let title = s(&v["title"]);
+    if title.is_empty() {
+        return None;
+    }
+    let labels = str_map(&v["labels"]);
+    let id = s(&v["id"]);
+    let fingerprint = if id.is_empty() {
+        fnv(&format!("{source}|{title}|{}", labels.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")))
+    } else {
+        fnv(&format!("{source}|{id}"))
+    };
+    let links = v["links"].as_array().into_iter().flatten()
+        .filter_map(|l| {
+            let url = s(&l["url"]);
+            url.starts_with("http").then(|| Link { title: s(&l["title"]).chars().take(40).collect(), url })
+        })
+        .take(8)
+        .collect();
+    let status = match s(&v["status"]).as_str() {
+        "resolved" | "ok" | "closed" => "resolved",
+        _ => "firing",
+    };
+    let time = s(&v["time"]);
+    Some(Alert {
+        kind: "ai".into(),
+        links,
+        fingerprint,
+        status: status.into(),
+        silenced: false,
+        source: source.into(),
+        name: title.chars().take(200).collect(),
+        severity: s(&v["severity"]),
+        summary: s(&v["summary"]).chars().take(1000).collect(),
+        description: s(&v["details"]).chars().take(20000).collect(),
+        starts_at: if time.is_empty() { now() } else { time },
+        received_at: now(),
+        labels,
+        ..Default::default()
+    })
+}
+
+/// Alertmanager alert (has labels + startsAt/fingerprint) or AI finding (has title).
+fn parse_item(v: &Value, source: &str) -> Option<Alert> {
+    if v["labels"].is_object() && (v.get("startsAt").is_some() || v.get("fingerprint").is_some()) {
+        Some(parse_alert(v, source))
+    } else {
+        parse_finding(v, source)
+    }
+}
+
+/// Items of a response/POST body: a bare array, {alerts: [...]}, {findings: [...]} or one object.
+fn items_of(v: &Value) -> Vec<&Value> {
+    if let Some(a) = v.as_array() {
+        return a.iter().collect();
+    }
+    for key in ["alerts", "findings", "items"] {
+        if let Some(a) = v[key].as_array() {
+            return a.iter().collect();
+        }
+    }
+    if v.is_object() { vec![v] } else { Vec::new() }
 }
 
 // ---------- state updates ----------
@@ -195,7 +287,7 @@ fn notify(app: &AppHandle, news: &[Alert]) {
         .collect();
     // one notification per alert up to 3, then a summary
     for a in shown.iter().take(3) {
-        let icon = if a.status == "resolved" { "✅" } else if a.severity.contains("crit") { "🔴" } else { "🟠" };
+        let icon = if a.status == "resolved" { "✅" } else if a.kind == "ai" { "🤖" } else if a.severity.contains("crit") { "🔴" } else { "🟠" };
         let body = [a.summary.as_str(), a.description.as_str(), a.value.as_str()]
             .into_iter()
             .find(|x| !x.is_empty())
@@ -212,6 +304,18 @@ fn notify(app: &AppHandle, news: &[Alert]) {
 
 // ---------- pull: Grafana Alertmanager API ----------
 
+/// URL to poll for a connector, if it is an alert source.
+fn poll_url(c: &connectors::Connector) -> Option<String> {
+    let base = c.url.trim_end_matches('/');
+    match c.kind.as_str() {
+        "grafana" => Some(format!("{base}/api/alertmanager/grafana/api/v2/alerts?active=true&silenced=true&inhibited=true")),
+        "alertmanager" => Some(format!("{base}/api/v2/alerts?active=true&silenced=true&inhibited=true")),
+        // AI feed: the URL is the feed itself
+        "ai" if !base.is_empty() => Some(c.url.clone()),
+        _ => None,
+    }
+}
+
 async fn poll_once(app: &AppHandle) -> Vec<String> {
     let kp = app.state::<KeepassState>();
     let mut errors = Vec::new();
@@ -219,27 +323,33 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
         Ok(c) => c,
         Err(e) => return vec![e.to_string()],
     };
-    for c in connectors::all().unwrap_or_default().into_iter().filter(|c| c.kind == "grafana") {
+    for c in connectors::all().unwrap_or_default() {
+        let Some(url) = poll_url(&c) else { continue };
         let (user, pass) = match connectors::credentials(&kp, &c) {
             Ok(x) => x,
             Err(e) => { errors.push(format!("{}: {e}", c.name)); continue; }
         };
-        if pass.is_empty() {
+        // Grafana's API needs credentials; Alertmanager / feeds may be open
+        if c.kind == "grafana" && pass.is_empty() {
             continue;
         }
-        let url = format!("{}/api/alertmanager/grafana/api/v2/alerts?active=true&silenced=true&inhibited=true", c.url.trim_end_matches('/'));
         let req = client.get(&url);
-        // service account token (auth "token") → Bearer; login/password → basic auth
-        let req = if c.auth == "token" { req.bearer_auth(&pass) } else { req.basic_auth(&user, Some(&pass)) };
-        let res = req.send().await;
-        let list: Vec<Value> = match res {
-            Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+        let req = match c.auth.as_str() {
+            "none" => req,
+            "token" => req.bearer_auth(&pass),
+            _ => req.basic_auth(&user, Some(&pass)),
+        };
+        let body: Value = match req.send().await {
+            Ok(r) if r.status().is_success() => match r.json().await {
+                Ok(v) => v,
+                Err(e) => { errors.push(format!("{}: ответ не JSON ({e})", c.name)); continue; }
+            },
             Ok(r) => { errors.push(format!("{}: HTTP {}", c.name, r.status())); continue; }
             Err(e) => { errors.push(format!("{}: {e}", c.name)); continue; }
         };
-        let mut alerts: Vec<Alert> = list.iter().map(|a| parse_alert(a, &c.name)).collect();
+        let mut alerts: Vec<Alert> = items_of(&body).into_iter().filter_map(|v| parse_item(v, &c.name)).collect();
+        // a poll is a snapshot: whatever of this source vanished has been resolved
         let seen: HashSet<String> = alerts.iter().map(|a| a.fingerprint.clone()).collect();
-        // alerts of this source that disappeared from the API have been resolved
         {
             let d = app.state::<AlertsState>();
             let d = d.data.lock().unwrap();
@@ -254,6 +364,58 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
         apply(app, alerts);
     }
     errors
+}
+
+// ---------- push from local analyzers (127.0.0.1 only) ----------
+
+/// POST /api/v1/findings or /api/v1/alerts with `Authorization: Bearer <AI connector token>`.
+async fn ingest(
+    axum::extract::State(app): axum::extract::State<AppHandle>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> (axum::http::StatusCode, String) {
+    use axum::http::StatusCode;
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer ").or(v.strip_prefix("bearer ")))
+        .unwrap_or_default();
+    let source = connectors::all()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|c| c.kind == "ai" && c.ingest_token.len() >= 16 && c.ingest_token == token);
+    let Some(source) = source else {
+        return (StatusCode::UNAUTHORIZED, "unknown token: create an «AI / анализатор» connector in OpsDeck and use its token\n".into());
+    };
+    let v: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("invalid JSON: {e}\n")),
+    };
+    let alerts: Vec<Alert> = items_of(&v).into_iter().filter_map(|x| parse_item(x, &source.name)).collect();
+    if alerts.is_empty() {
+        return (StatusCode::BAD_REQUEST, "nothing to import: a finding needs \"title\", an alert needs \"labels\"\n".into());
+    }
+    let n = alerts.len();
+    apply(&app, alerts);
+    (StatusCode::OK, format!("accepted {n}\n"))
+}
+
+async fn run_ingest(app: AppHandle, port: u16, stop: oneshot::Receiver<()>) -> Result<(), String> {
+    use axum::{routing::{get, post}, Router};
+    let router = Router::new()
+        .route("/api/v1/health", get(|| async { "ok\n" }))
+        .route("/api/v1/findings", post(ingest))
+        .route("/api/v1/alerts", post(ingest))
+        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
+        .with_state(app);
+    // loopback only: nothing from the network can reach it
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .map_err(|e| format!("порт приёма 127.0.0.1:{port} занят: {e}"))?;
+    tauri::async_runtime::spawn(async move {
+        let _ = axum::serve(listener, router).with_graceful_shutdown(async { let _ = stop.await; }).await;
+    });
+    Ok(())
 }
 
 fn start_poll(app: AppHandle, secs: u64, stop: oneshot::Receiver<()>) {
@@ -272,9 +434,15 @@ fn start_poll(app: AppHandle, secs: u64, stop: oneshot::Receiver<()>) {
     });
 }
 
-/// (Re)starts the poller according to the saved config.
+/// (Re)starts the poller and the loopback ingest endpoint according to the saved config.
 pub async fn restart(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AlertsState>();
+    let had_ingest = if let Some(tx) = state.ingest_stop.lock().unwrap().take() {
+        let _ = tx.send(());
+        true
+    } else {
+        false
+    };
     if let Some(tx) = state.poll_stop.lock().unwrap().take() {
         let _ = tx.send(());
     }
@@ -283,6 +451,14 @@ pub async fn restart(app: &AppHandle) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         *state.poll_stop.lock().unwrap() = Some(tx);
         start_poll(app.clone(), cfg.poll_seconds, rx);
+    }
+    if cfg.ingest_enabled {
+        if had_ingest {
+            tokio::time::sleep(Duration::from_millis(200)).await; // let the old listener release the port
+        }
+        let (tx, rx) = oneshot::channel();
+        *state.ingest_stop.lock().unwrap() = Some(tx);
+        run_ingest(app.clone(), cfg.ingest_port, rx).await?;
     }
     Ok(())
 }
@@ -343,6 +519,19 @@ pub fn alerts_config_get() -> AlertsConfig {
 pub async fn alerts_config_set(app: AppHandle, config: AlertsConfig) -> Result<(), String> {
     store::save_json(CONFIG_FILE, &config)?;
     restart(&app).await
+}
+
+/// Close an item by hand (AI findings have no natural end): it goes to history as resolved.
+#[tauri::command]
+pub fn alerts_resolve(app: AppHandle, fingerprint: String) {
+    let state = app.state::<AlertsState>();
+    let item = state.data.lock().unwrap().current.get(&fingerprint).cloned();
+    if let Some(mut a) = item {
+        a.status = "resolved".into();
+        a.ends_at = now();
+        a.received_at = now();
+        apply(&app, vec![a]);
+    }
 }
 
 /// Poll right now (button in the UI); returns per-connector errors.

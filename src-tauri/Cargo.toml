@@ -23,6 +23,7 @@ serde_yaml_ng = "0.10"
 futures = "0.3"
 chrono = "0.4"
 flate2 = "1"
+axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tauri-plugin-notification = "2"
 dirs = "6"

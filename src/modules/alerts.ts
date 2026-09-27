@@ -5,13 +5,14 @@ import { registerProvider } from "./palette";
 import { ask, esc, toast } from "./ui";
 
 type Alert = {
+  kind: string; links: { title: string; url: string }[];
   fingerprint: string; status: string; silenced: boolean; source: string; name: string; severity: string;
   summary: string; description: string; labels: Record<string, string>; annotations: Record<string, string>;
   starts_at: string; ends_at: string; generator_url: string; silence_url: string; dashboard_url: string;
   panel_url: string; value: string; received_at: string; acked: boolean;
 };
 type View = { current: Alert[]; history: Alert[]; firing: number };
-type Config = { poll_enabled: boolean; poll_seconds: number; notify: boolean; notify_resolved: boolean };
+type Config = { ingest_enabled: boolean; ingest_port: number; poll_enabled: boolean; poll_seconds: number; notify: boolean; notify_resolved: boolean };
 
 const SEV_ORDER = ["critical", "high", "error", "warning", "medium", "info", "low", ""];
 const sevRank = (s: string) => { const i = SEV_ORDER.findIndex((x) => s.toLowerCase().includes(x)); return i < 0 ? SEV_ORDER.length : i; };
@@ -32,12 +33,14 @@ export function mountAlerts(root: HTMLElement) {
       </div>
       <div class="al-errors err" hidden></div>
       <form class="al-settings" hidden>
-        <p class="muted">OpsDeck сам опрашивает Alertmanager API каждой Grafana из раздела «Веб-панели» (◎), у которой задан логин/пароль, токен service account или запись KeePass. На этот компьютер ничего не присылается — IP и NAT значения не имеют.</p>
+        <p class="muted">Источники заводятся в «Веб-панелях» (◎): Grafana (логин/пароль, токен service account или KeePass), Prometheus Alertmanager и «AI / анализатор». OpsDeck сам их опрашивает — извне на этот компьютер ничего не приходит, IP и NAT не важны. Локальные анализаторы могут присылать находки на 127.0.0.1 (подсказка — в настройках AI-коннектора).</p>
         <div class="row wrap">
           <label class="check"><input type="checkbox" name="poll_enabled" /> Опрашивать</label>
           <label>каждые <input type="number" name="poll_seconds" min="15" max="3600" /> с</label>
           <label class="check"><input type="checkbox" name="notify" /> Уведомления на рабочем столе</label>
           <label class="check"><input type="checkbox" name="notify_resolved" /> …и о восстановлении</label>
+          <label class="check"><input type="checkbox" name="ingest_enabled" /> Приём от локальных анализаторов на 127.0.0.1:</label>
+          <input type="number" name="ingest_port" min="1024" max="65535" />
           <button class="primary">Сохранить</button>
         </div>
       </form>
@@ -65,17 +68,23 @@ export function mountAlerts(root: HTMLElement) {
     const links = [
       a.panel_url && ["Панель", a.panel_url], a.dashboard_url && ["Дашборд", a.dashboard_url],
       a.generator_url && ["Правило", a.generator_url], a.silence_url && ["Silence", a.silence_url],
+      ...(a.links ?? []).map((l) => [l.title || "Ссылка", l.url]),
     ].filter(Boolean) as [string, string][];
+    const ai = a.kind === "ai";
+    const longDesc = a.description.length > 400;
     return `<div class="al-card sev-${sevClass(a.severity)} ${a.acked ? "acked" : ""} ${a.silenced ? "silenced" : ""}" data-fp="${esc(a.fingerprint)}">
       <div class="al-head">
         <span class="al-sev">${esc(a.severity || "—")}</span>
+        ${ai ? `<span class="badge ai" title="Находка AI-анализатора">🤖 AI</span>` : ""}
         <strong class="al-name">${esc(a.name)}</strong>
         ${a.silenced ? `<span class="badge">silenced</span>` : ""}${a.acked ? `<span class="badge">просмотрен</span>` : ""}
         <span class="spacer"></span>
         <span class="muted" title="${esc(new Date(a.starts_at).toLocaleString())}">${esc(age(a.starts_at))} · ${esc(a.source)}</span>
       </div>
       ${a.summary ? `<div class="al-summary-text">${esc(a.summary)}</div>` : ""}
-      ${a.description && a.description !== a.summary ? `<div class="muted al-desc">${esc(a.description)}</div>` : ""}
+      ${a.description && a.description !== a.summary ? (longDesc
+        ? `<details class="al-desc"><summary class="muted">${esc(a.description.slice(0, 200))}…</summary><div class="muted">${esc(a.description)}</div></details>`
+        : `<div class="muted al-desc">${esc(a.description)}</div>`) : ""}
       ${a.value ? `<div class="mono muted al-value">${esc(a.value)}</div>` : ""}
       ${labels.length ? `<div class="chips">${labels.map(([k, v]) => `<span class="chip">${esc(k)}=${esc(v)}</span>`).join("")}</div>` : ""}
       <div class="al-actions">
@@ -83,6 +92,7 @@ export function mountAlerts(root: HTMLElement) {
         <span class="spacer"></span>
         <button class="ghost" data-a="ai">⇢ AI</button>
         <button class="ghost" data-a="ack">${a.acked ? "Вернуть" : "✓ Просмотрен"}</button>
+        ${ai ? `<button class="ghost" data-a="resolve" title="Убрать в историю">Закрыть</button>` : ""}
       </div>
     </div>`;
   }
@@ -112,6 +122,8 @@ export function mountAlerts(root: HTMLElement) {
     f("poll_seconds").value = String(c.poll_seconds);
     f("notify").checked = c.notify;
     f("notify_resolved").checked = c.notify_resolved;
+    f("ingest_enabled").checked = c.ingest_enabled;
+    f("ingest_port").value = String(c.ingest_port);
   }
 
   form.onsubmit = async (e) => {
@@ -119,6 +131,7 @@ export function mountAlerts(root: HTMLElement) {
     const config: Config = {
       poll_enabled: f("poll_enabled").checked, poll_seconds: Math.max(15, Number(f("poll_seconds").value) || 60),
       notify: f("notify").checked, notify_resolved: f("notify_resolved").checked,
+      ingest_enabled: f("ingest_enabled").checked, ingest_port: Number(f("ingest_port").value) || 9095,
     };
     await invoke("alerts_config_set", { config }).then(() => toast("Сохранено"), (err) => toast(String(err), "err"));
   };
@@ -141,10 +154,11 @@ export function mountAlerts(root: HTMLElement) {
       await invoke("alerts_clear", { current: false, history: true });
       load();
     }
+    if (act === "resolve" && a) { await invoke("alerts_resolve", { fingerprint: a.fingerprint }); load(); }
     if (act === "ack" && a) { await invoke("alerts_ack", { fingerprint: a.fingerprint, acked: !a.acked }); load(); }
     if (act === "ai" && a) {
       window.dispatchEvent(new CustomEvent("send-to-ai", { detail:
-        `Алерт из Grafana (${a.source}): ${a.name}, severity ${a.severity || "—"}, горит с ${new Date(a.starts_at).toLocaleString()}.\n` +
+        `${a.kind === "ai" ? "Находка AI-анализатора" : "Алерт"} (${a.source}): ${a.name}, severity ${a.severity || "—"}, горит с ${new Date(a.starts_at).toLocaleString()}.\n` +
         `${a.summary}\n${a.description}\n${a.value ? `Значения: ${a.value}\n` : ""}Метки: ${Object.entries(a.labels).map(([k, v]) => `${k}=${v}`).join(", ")}\n` +
         `Что это может значить и что проверить в первую очередь?` }));
     }
