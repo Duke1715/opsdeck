@@ -1,0 +1,14 @@
+# Еженедельные PR с обновлениями зависимостей (в т.ч. с исправлениями безопасности)
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
