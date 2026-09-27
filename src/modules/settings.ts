@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
@@ -11,7 +12,7 @@ type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
     <div class="page settings">
-      <h2>Настройки</h2>
+      <h2>Настройки ${helpBtn("settings")}</h2>
       <form>
         <fieldset><legend>KeePass</legend>
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>

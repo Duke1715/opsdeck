@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
@@ -22,6 +23,7 @@ export function mountConnectors(root: HTMLElement) {
       <div class="tab active" data-t="home">☰ Панели</div>
       <div class="tabs web-tablist"></div>
       <span class="spacer"></span>
+      ${helpBtn("web")}
       <span class="web-nav" hidden>
         <button class="icon" data-n="back" title="Назад">←</button>
         <button class="icon" data-n="forward" title="Вперёд">→</button>

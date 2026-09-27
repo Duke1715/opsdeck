@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts } from "./pty";
@@ -53,6 +54,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">⊟</button>
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
+        ${helpBtn("terminal")}
         <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘ Команды</button>
         <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢ в AI</button>
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>

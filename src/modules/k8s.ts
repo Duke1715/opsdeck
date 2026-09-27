@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -265,6 +266,7 @@ export function mountK8s(root: HTMLElement) {
         <label class="muted auto" title="Живое обновление (watch): изменения в кластере появляются сразу"><input type="checkbox" class="auto-cb" checked /> live</label>
         <button class="icon" data-act="refresh" title="Обновить">↻</button>
         <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">⎈ Терминал</button>
+        ${helpBtn("k8s")}
       </div>
       <div class="k8s-err err" hidden></div>
       <div class="table-wrap"><table class="res"><thead></thead><tbody></tbody></table></div>

@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { registerProvider } from "./palette";
@@ -34,7 +35,7 @@ export function mountSsh(root: HTMLElement) {
     <div class="page">
       <div class="page-head">
         <h2>SSH</h2>
-        <div class="row"><input class="ssh-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Хост</button></div>
+        <div class="row"><input class="ssh-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Хост</button>${helpBtn("ssh")}</div>
       </div>
       <p class="muted">Подключение открывает вкладку терминала. Хосты из ~/.ssh/config подключаются по алиасу со всеми его настройками. Пароль из KeePass/keyring кладётся в буфер на 30 с.</p>
       <div class="ssh-list"></div>

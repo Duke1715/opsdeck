@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
@@ -16,7 +17,7 @@ let seq = 0;
 export function mountNetwork(root: HTMLElement) {
   root.innerHTML = `
     <div class="page net">
-      <h2>Сеть и DNS</h2>
+      <h2>Сеть и DNS ${helpBtn("net")}</h2>
       <form class="toolbar">
         <select name="tool"></select>
         <input name="target" placeholder="хост или IP, например 8.8.8.8" required autocomplete="off" spellcheck="false" />

@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -36,6 +37,7 @@ export function mountNotes(root: HTMLElement) {
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
         <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос Claude Code">@ Claude</button>
         <button data-a="save" title="Ctrl+S" disabled>Сохранить</button>
+        ${helpBtn("notes")}
         <button class="ghost" data-a="obsidian" disabled title="Открыть эту заметку в приложении Obsidian">Obsidian ↗</button>
       </div>
       <textarea class="note-editor" spellcheck="false" hidden></textarea>

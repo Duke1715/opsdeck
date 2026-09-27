@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { age } from "./k8s-details";
@@ -29,6 +30,7 @@ export function mountAlerts(root: HTMLElement) {
           <input class="al-filter" placeholder="фильтр…" spellcheck="false" />
           <button class="ghost" data-a="poll" title="Опросить Grafana сейчас">↻ Опросить</button>
           <button class="ghost" data-a="settings">⚙</button>
+          ${helpBtn("alerts")}
         </div>
       </div>
       <div class="al-errors err" hidden></div>

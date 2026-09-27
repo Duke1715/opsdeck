@@ -441,3 +441,22 @@ a.dlink:hover { text-decoration: underline; }
 .ai-help summary { cursor: pointer; font-size: 12px; }
 dialog.conn-dialog { width: 600px; max-height: 90vh; overflow: auto; }
 .badge.ai { color: #c678dd; border-color: #c678dd66; }
+
+/* "!" help */
+.help-btn { width: 22px; height: 22px; padding: 0; border-radius: 50%; flex: none; display: inline-flex; align-items: center;
+  justify-content: center; font: 700 13px/1 system-ui; color: #e6c07b; background: transparent; border: 1.5px solid #e6c07b88;
+  vertical-align: middle; margin-left: 6px; }
+.help-btn:hover:not(:disabled) { background: #e6c07b22; border-color: #e6c07b; }
+dialog.help-dialog { width: min(720px, 92vw); max-height: 86vh; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+dialog.help-dialog[open] { display: flex; }
+.help-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.help-head h3 { margin: 0; }
+.help-mark { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #1b2031; background: #e6c07b; }
+.help-body { padding: 6px 22px 18px; overflow: auto; line-height: 1.55; }
+.help-body h4 { margin: 14px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+.help-body p { margin: 4px 0; }
+.help-body ul { margin: 4px 0; padding-left: 20px; }
+.help-body li { margin: 3px 0; }
+.help-body code { background: var(--panel-2); padding: 0 4px; border-radius: 4px; font-size: 12px; }
+kbd { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px; white-space: nowrap; }

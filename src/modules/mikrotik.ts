@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
@@ -15,7 +16,7 @@ export function mountMikrotik(root: HTMLElement) {
     <div class="page">
       <div class="page-head">
         <h2>MikroTik</h2>
-        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Устройство</button></div>
+        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Устройство</button>${helpBtn("winbox")}</div>
       </div>
       <p class="muted">WinBox запускается с логином и паролем из KeePass или keyring. SSH открывается вкладкой терминала, а пароль кладётся в буфер на 30 с.</p>
       <div class="mt-list"></div>

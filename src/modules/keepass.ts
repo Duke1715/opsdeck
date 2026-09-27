@@ -1,3 +1,4 @@
+import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { esc, overlay, toast } from "./ui";
@@ -104,7 +105,7 @@ export function mountKeepass(root: HTMLElement) {
     const st = await kpStatus();
     if (!st.unlocked) {
       body.innerHTML = `<div class="kp-locked"></div>
-        <div class="kp-foot"><button class="ghost" data-a="xc">Открыть в KeePassXC</button></div>`;
+        <div class="kp-foot"><button class="ghost" data-a="xc">Открыть в KeePassXC</button>${helpBtn("vault")}</div>`;
       unlockForm(body.querySelector<HTMLElement>(".kp-locked")!, st, render);
       body.querySelector<HTMLElement>("[data-a=xc]")!.onclick = () => invoke("kp_open_external").catch((e) => toast(String(e), "err"));
       return;
@@ -115,6 +116,7 @@ export function mountKeepass(root: HTMLElement) {
         <div class="row">
           <button class="ghost" data-a="xc">KeePassXC</button>
           <button data-a="lock">🔒 Заблокировать</button>
+          ${helpBtn("vault")}
         </div>
       </div>
       <input class="kp-search" placeholder="поиск: имя, логин, URL, группа, тег" spellcheck="false" />
