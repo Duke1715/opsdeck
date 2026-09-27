@@ -9,6 +9,9 @@ import { mountNotes } from "./modules/notes";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
+import { mountAlerts } from "./modules/alerts";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { registerProvider } from "./modules/palette";
 
 type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
@@ -17,6 +20,7 @@ const views: View[] = [
   { id: "terminal", icon: "▶", title: "Терминал + AI", mount: mountTerminal },
   { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
   { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
+  { id: "alerts", icon: "🔔", title: "Алерты", mount: mountAlerts },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
   { id: "ssh", icon: "🖧", title: "SSH", mount: mountSsh },
   { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
@@ -55,6 +59,16 @@ for (const v of views) {
 // a module asked for a terminal tab: switch to the terminal view (the tab itself is created there)
 window.addEventListener("open-terminal", () => show("terminal"));
 window.addEventListener("show-view", (e) => show((e as CustomEvent<string>).detail));
+// firing-alerts counter on the 🔔 button
+const setAlertBadge = (n: number) => {
+  const b = sidebar.querySelector<HTMLElement>("[data-view=alerts]");
+  if (!b) return;
+  b.dataset.badge = n > 99 ? "99+" : String(n);
+  b.classList.toggle("has-badge", n > 0);
+};
+listen<number>("alerts-changed", (e) => setAlertBadge(e.payload));
+invoke<{ firing: number }>("alerts_get", { historyLimit: 0 }).then((v) => setAlertBadge(v.firing)).catch(() => {});
+
 registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.icon, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));
 

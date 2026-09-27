@@ -78,6 +78,23 @@ pub fn connector_delete(id: String) -> Result<(), String> {
     store::save_json(FILE, &list)
 }
 
+/// All connectors (for other modules, e.g. alert polling).
+pub fn all() -> Result<Vec<Connector>, String> {
+    load()
+}
+
+/// (username, password-or-token) of a connector; empty when it has no credentials.
+pub fn credentials(kp: &KeepassState, c: &Connector) -> Result<(String, String), String> {
+    Ok(match c.auth.as_str() {
+        "none" => (c.username.clone(), String::new()),
+        "keepass" => {
+            let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
+            (if c.username.is_empty() { user } else { c.username.clone() }, pass)
+        }
+        _ => (c.username.clone(), store::secret_get(&secret_key(&c.id)).unwrap_or_default()),
+    })
+}
+
 /// Connector, its start URL and (if credentials are configured) the auto-login init script.
 pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<String>), String> {
     let mut c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;

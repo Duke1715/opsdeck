@@ -1,3 +1,6 @@
+use tauri::Manager;
+
+mod alerts;
 mod connectors;
 mod embed;
 mod ide;
@@ -15,15 +18,25 @@ mod tools;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(pty::PtyState::default())
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
         .manage(keepass::KeepassState::default())
         .manage(ide::IdeState::default())
+        .manage(alerts::AlertsState::default())
         .setup(|app| {
             keepass::spawn_autolock(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
+            alerts::load_data(&app.state::<alerts::AlertsState>());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = alerts::restart(&handle).await {
+                    eprintln!("alerts: {e}");
+                    let _ = tauri::Emitter::emit(&handle, "alerts-error", e);
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -41,6 +54,7 @@ pub fn run() {
             embed::web_embed_hide,
             embed::web_embed_close,
             embed::web_embed_nav,
+            embed::open_external,
             k8s::k8s_contexts,
             k8s::k8s_import,
             k8s::k8s_remove_source,
@@ -92,6 +106,12 @@ pub fn run() {
             notes::note_open_obsidian,
             notes::note_daily,
             snippets::snippets_list,
+            alerts::alerts_get,
+            alerts::alerts_ack,
+            alerts::alerts_clear,
+            alerts::alerts_config_get,
+            alerts::alerts_config_set,
+            alerts::alerts_poll_now,
             ssh::ssh_list,
             ssh::ssh_keys,
             ssh::ssh_save,

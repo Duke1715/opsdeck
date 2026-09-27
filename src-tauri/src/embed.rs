@@ -99,12 +99,28 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
 }
 
 /// Creates the panel on first use, then shows it over `rect` (logical px, window-relative).
+/// `url` (optional) opens a specific page, e.g. a dashboard from an alert; it must be on the
+/// connector's origin so credentials never go to another site.
 #[tauri::command]
-pub async fn web_embed_show(app: AppHandle, kp: State<'_, KeepassState>, id: String, rect: Rect) -> Result<(), String> {
+pub async fn web_embed_show(app: AppHandle, kp: State<'_, KeepassState>, id: String, rect: Rect, url: Option<String>) -> Result<(), String> {
+    let (_, base, script) = connectors::prepare(&kp, &id)?;
+    let target = match url {
+        Some(u) => {
+            let u = tauri::Url::parse(&u).map_err(|e| e.to_string())?;
+            if u.origin() != base.origin() {
+                return Err("адрес не относится к этому коннектору".into());
+            }
+            Some(u)
+        }
+        None => None,
+    };
     if let Some(wv) = app.get_webview(&label(&id)) {
+        if let Some(u) = target {
+            wv.navigate(u).map_err(|e| e.to_string())?;
+        }
         return place(&wv, rect);
     }
-    let (_, url, script) = connectors::prepare(&kp, &id)?;
+    let url = target.unwrap_or(base);
     let window = app.get_window("main").ok_or("no main window")?;
     let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url));
     if let Some(js) = script {
@@ -146,4 +162,16 @@ pub fn web_embed_nav(app: AppHandle, kp: State<KeepassState>, id: String, action
         _ => return Err("unknown action".into()),
     };
     r.map_err(|e| e.to_string())
+}
+
+/// Opens an http(s) URL in the system browser.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let u = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return Err("только http(s)".into());
+    }
+    let mut child = std::process::Command::new("xdg-open").arg(u.as_str()).spawn().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }

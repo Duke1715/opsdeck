@@ -6,7 +6,7 @@ import { registerProvider } from "./palette";
 type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
-  grafana: { label: "Grafana", auth: ["keepass", "password", "none"], hint: "Логин/пароль локального пользователя. SSO/OAuth — вход вручную, сессия сохранится." },
+  grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
   argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
   gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
@@ -173,6 +173,7 @@ export function mountConnectors(root: HTMLElement) {
   const homeTab = root.querySelector<HTMLElement>("[data-t=home]")!;
   let tabs: WebTab[] = (() => { try { return JSON.parse(localStorage.getItem("opsdeck.web.tabs") ?? "[]"); } catch { return []; } })();
   let active = "home";
+  let pendingUrl: { id: string; url: string } | null = null;
   let overlays = 0;
   const saveTabs = () => { try { localStorage.setItem("opsdeck.web.tabs", JSON.stringify(tabs)); } catch { /* ignore */ } };
 
@@ -195,7 +196,9 @@ export function mountConnectors(root: HTMLElement) {
       if (!visible()) return;
       const r = slot.getBoundingClientRect();
       if (r.width < 2 || r.height < 2) return;
-      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height } })
+      const url = pendingUrl?.id === active ? pendingUrl.url : null;
+      pendingUrl = null;
+      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, url })
         .catch((e) => { toast(String(e), "err"); });
     });
   }
@@ -241,6 +244,21 @@ export function mountConnectors(root: HTMLElement) {
     } else {
       invoke("web_embed_nav", { id: active, action: n }).catch((err) => toast(String(err), "err"));
     }
+  });
+
+  /** Open a link (e.g. from an alert): in the matching connector's tab, otherwise in the browser. */
+  window.addEventListener("open-url", async (e) => {
+    const url = (e as CustomEvent<string>).detail;
+    let origin = "";
+    try { origin = new URL(url).origin; } catch { return toast("Некорректная ссылка", "err"); }
+    const list = await invoke<Connector[]>("connectors_list").catch(() => [] as Connector[]);
+    const c = list.find((x) => { try { return new URL(x.url).origin === origin; } catch { return false; } });
+    if (!c) {
+      invoke("open_external", { url }).catch((err) => toast(String(err), "err"));
+      return;
+    }
+    pendingUrl = { id: c.id, url };
+    openTab(c);
   });
 
   new ResizeObserver(place).observe(slot);

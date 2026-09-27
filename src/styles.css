@@ -401,3 +401,31 @@ pre.ro-text { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; background
 a.dlink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
 a.dlink:hover { text-decoration: underline; }
 .mono { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 12.5px; }
+
+/* alerts */
+#sidebar button { position: relative; }
+#sidebar button.has-badge::after { content: attr(data-badge); position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font: 600 10px/16px system-ui; }
+.alerts .al-current { display: flex; flex-direction: column; gap: 8px; }
+.al-card { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid #e6c07b; border-radius: var(--radius);
+  padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.al-card.sev-crit { border-left-color: var(--danger); }
+.al-card.sev-info { border-left-color: #61afef; }
+.al-card.acked, .al-card.silenced { opacity: .55; }
+.al-head { display: flex; align-items: center; gap: 8px; }
+.al-sev { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); }
+.sev-crit .al-sev { color: var(--danger); } .sev-warn .al-sev { color: #e6c07b; } .sev-info .al-sev { color: #61afef; }
+.al-name { font-size: 14px; }
+.al-desc, .al-value { font-size: 12.5px; white-space: pre-wrap; }
+.al-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.al-actions button { padding: 2px 10px; font-size: 12px; }
+.al-empty { padding: 28px; text-align: center; color: #98d982; background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius); }
+.al-settings { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
+.al-settings p { margin: 0; }
+.row.wrap { flex-wrap: wrap; }
+.al-settings label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.al-settings input[type=number] { width: 80px; }
+.al-history-wrap summary { cursor: pointer; display: flex; align-items: center; gap: 10px; }
+.al-clear { padding: 0 8px; font-size: 11px; text-transform: none; letter-spacing: 0; }
+.al-history td.wrap { white-space: normal; }
+.al-filter { width: 200px; }
