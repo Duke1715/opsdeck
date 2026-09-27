@@ -1,29 +1,83 @@
 # OpsDeck
 
-Единая DevOps-панель: терминал с AI рядом, Kubernetes, веб-панели (Grafana / ArgoCD / GitLab), сеть и DNS, Obsidian, KeePass, Winbox.
+**Единая рабочая панель DevOps-инженера**: терминал с AI рядом, Kubernetes, Grafana/ArgoCD/GitLab во вкладках, алерты, KeePass, SSH, MikroTik и заметки — в одном нативном приложении для Linux, Windows и macOS.
 
-Стек: **Tauri 2** (бэкенд на Rust) + TypeScript/Vite + xterm.js.
+> *English:* OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
 
-## Запуск (Ubuntu)
+Стек: **Rust + [Tauri 2](https://tauri.app)** (бэкенд), TypeScript + Vite (интерфейс), [xterm.js](https://xtermjs.org) (терминал), [kube-rs](https://kube.rs) (Kubernetes).
 
-Один раз поставить системные зависимости Tauri:
+---
 
+## Возможности
+
+### Терминал «как Warp» + AI рядом
+- Вкладки и сплиты, настоящий shell (bash/zsh/PowerShell).
+- **Блоки команд**: у каждой команды — код выхода и время, панель действий (скопировать команду/вывод, сохранить как сниппет, отправить в AI), плашка «спросить AI» при ошибке, навигация по командам.
+- **AI-панель** справа: Claude Code, Codex, Gemini или Aider в своём терминале; выделенный текст или вывод команды отправляется туда одной клавишей.
+- **Интеграция с Claude Code как IDE**: `claude`, запущенный в OpsDeck, подключается к нему сам (MCP по WebSocket на 127.0.0.1) — видит выделение в заметках и получает ссылки на них.
+- **Палитра команд** `Ctrl+Shift+P`: разделы, кластеры, хосты, заметки, пароли, история команд, сниппеты с параметрами `{{имя}}`.
+
+### Kubernetes (в духе Lens)
+- Собственное хранилище kubeconfig (ваш `~/.kube/config` не меняется): импорт выбранных контекстов, вставка YAML, drag & drop файлов.
+- Живые таблицы (watch), CPU/RAM из metrics-server, любые CRD с колонками как у `kubectl get`.
+- Логи пода и **сразу всех подов** Deployment/StatefulSet/DaemonSet/Job с фильтрами; вкладка «Детали» со ссылками на связанные объекты; YAML с server-side apply.
+- Shell, port-forward, scale, restart, delete; Helm-релизы (values, история, rollback) и Argo CD Applications (sync/refresh).
+- Режим **«только чтение»** для продовых контекстов — изменения блокирует бэкенд.
+
+### Веб-панели и алерты
+- Grafana, ArgoCD, GitLab и любые сайты — **вкладками внутри окна** с автоматическим входом (пароль из keyring или KeePass).
+- **Алерты** 🔔: OpsDeck сам опрашивает Grafana Alerting, Prometheus Alertmanager и JSON-ленты ваших AI-анализаторов — на машину ничего не нужно пробрасывать. Уведомления на рабочем столе, история, ссылки на панели/silence, разбор алерта в AI.
+- **Свой AI-анализатор** логов и алертов может присылать находки на `127.0.0.1` по токену — в приложении есть готовая инструкция и пример `curl`.
+
+### Остальное
+- **KeePass** (.kdbx): только чтение, база лишь в памяти, автоблокировка; пароли копируются с автоочисткой буфера и служат источником для всех разделов.
+- **SSH**: профили (ключ, jump-хост, пароль из KeePass) и хосты из `~/.ssh/config`.
+- **MikroTik**: WinBox и SSH в один клик.
+- **Заметки**: дерево папок, поиск, редактор Markdown (работает с Obsidian vault).
+- **Сеть и DNS**: ping, mtr, traceroute, dig, nslookup, проверка TCP-порта.
+
+В каждом разделе есть кнопка **!** — встроенная подсказка: как работает, что где нажимать, горячие клавиши.
+
+---
+
+## Установка
+
+### Готовые сборки
+Установщики для Linux (`.deb`, `.rpm`, `.AppImage`), Windows (`.msi`, `.exe`) и macOS (`.dmg`) публикуются в **Releases** и собираются GitHub Actions на каждый тег `v*` (см. [Сборка в CI](#сборка-в-ci)).
+
+> macOS-сборки пока не подписаны: при первом запуске откройте приложение через правый клик → «Открыть» или выполните `xattr -dr com.apple.quarantine /Applications/OpsDeck.app`.
+
+### Сборка из исходников
+Нужны [Rust](https://rustup.rs) (stable) и Node.js 20+.
+
+**Linux (Debian/Ubuntu)** — системные библиотеки:
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential
 ```
-
-Разработка:
+**Windows** — WebView2 (есть в Windows 10/11) и Visual Studio Build Tools (C++). **macOS** — Xcode Command Line Tools.
 
 ```bash
 npm install
-npm run tauri dev
+npm run tauri dev      # режим разработки
+npm run tauri build    # установщики → src-tauri/target/release/bundle/
 ```
 
-Сборка пакетов (.deb / AppImage): `npm run tauri build`.
+Необязательные внешние программы: `kubectl`, `helm`, `ssh`, `mtr`/`traceroute`/`dig`, WinBox, KeePassXC, `claude`/`codex`/`gemini`/`aider` — OpsDeck использует их, если они установлены.
 
-## Сборка под все ОС (GitHub Actions)
+---
 
-`.github/workflows/build.yml` собирает на **нативных раннерах** — каждая платформа на своей ОС и архитектуре, без кросс-компиляции:
+## Быстрый старт
+
+1. **Kubernetes**: раздел ☸ → **＋** → отметьте нужные контексты из `~/.kube/config`. Для прода включите 🔒.
+2. **Grafana и алерты**: раздел ◎ → **＋ Добавить** → тип Grafana, URL, авторизация «токен» (Service account с ролью Viewer) → **Сохранить и проверить**. Алерты появятся в 🔔.
+3. **Терминал + AI**: `Ctrl+Shift+I` открывает AI-панель, `Ctrl+Shift+A` отправляет выделение, `Ctrl+Shift+P` — палитра.
+4. **KeePass, заметки, WinBox**: пути подхватываются автоматически, проверить можно в ⚙.
+
+---
+
+## Сборка в CI
+
+`.github/workflows/build.yml` собирает на **нативных раннерах** — каждая платформа на своей ОС и архитектуре:
 
 | Раннер | Что получается |
 |---|---|
@@ -31,67 +85,57 @@ npm run tauri dev
 | `windows-latest` (x64), `windows-11-arm` (arm64, preview) | `.msi`, установщик NSIS `.exe` |
 | `macos-latest` (Apple Silicon), `macos-15-intel` (Intel) | `.dmg`, `.app` |
 
-- Пуш в `main`/`master` и PR: проверки (TypeScript, `npm audit`, `cargo audit`), затем сборка; установщики — в артефактах запуска (Actions → запуск → Artifacts).
-- Тег `v*` (например `git tag v0.2.0 && git push --tags`): то же + **черновик релиза** со всеми установщиками.
-- arm64-раннеры Linux бесплатны для публичных репозиториев; в приватном их может не быть на вашем тарифе — тогда уберите строку из `matrix`.
-- macOS-сборки не подписаны: при первом запуске «Открыть» через правый клик, или `xattr -dr com.apple.quarantine /Applications/OpsDeck.app`.
-- `.github/dependabot.yml` раз в неделю предлагает обновления зависимостей (cargo, npm, actions).
+- Пуш в `main`/`master` и pull request: проверки (TypeScript, `npm audit`, `cargo audit`), затем сборка; установщики — в артефактах запуска (Actions → запуск → Artifacts).
+- Тег `v*` (например `git tag v0.1.0 && git push --tags`): то же + **черновик релиза** со всеми установщиками.
+- arm64-раннеры Linux бесплатны для публичных репозиториев; в приватном их может не быть на вашем тарифе — тогда уберите строку `linux-arm64` из `matrix`.
+- Dependabot (`.github/dependabot.yml`) раз в неделю предлагает обновления зависимостей.
 
-Локальная сборка: `npm run tauri build` (установщики — в `src-tauri/target/release/bundle/`).
+---
 
-## Что есть
+## Архитектура
 
-В каждом разделе есть кнопка **!** — подсказка: как работает, что где нажимать, горячие клавиши.
+```
+src/                  интерфейс (TypeScript, без фреймворка)
+  modules/            разделы: terminal, k8s, connectors (веб-панели), alerts, keepass, notes, ssh, …
+src-tauri/src/        бэкенд на Rust
+  pty.rs              терминалы (portable-pty) + интеграция shell (OSC 133)
+  k8s.rs              Kubernetes (kube-rs): списки, watch, логи, Helm, CRD
+  embed.rs            встраивание веб-панелей во вкладки
+  alerts.rs           сбор алертов и находок AI
+  ide.rs              мост для Claude Code (MCP по WebSocket, 127.0.0.1)
+  keepass.rs, ssh.rs, mikrotik.rs, notes.rs, connectors.rs, tools.rs, store.rs, …
+```
 
+Данные пользователя: `~/.config/opsdeck/` (права 600/700), секреты — в системном хранилище (Secret Service / Keychain / Credential Manager).
 
-| Модуль | Как устроено |
-|---|---|
-| Терминал | PTY на `portable-pty`, вкладки и сплиты (`Ctrl+Shift+D` вправо, `Ctrl+Shift+E` вниз, `Ctrl+Shift+←/→` между панелями), `Ctrl+Shift+C/V`. Shell integration (OSC 133, bash/zsh): блоки команд с кодом и временем, панель над блоком (копировать команду/вывод, ★ в сниппеты, ⇢ AI), плашка при ошибке «спросить AI», `Ctrl+Shift+↑/↓` по командам, новая вкладка открывается в текущей папке |
-| Палитра | `Ctrl+Shift+P`: разделы, контексты k8s, веб-панели, MikroTik, заметки, пароли KeePass, история команд, сниппеты с параметрами `{{имя}}` |
-| Claude Code IDE | OpsDeck — «IDE» для `claude`: lock-файл в `~/.claude/ide/`, MCP по WebSocket (токен, только 127.0.0.1). `claude`, запущенный в OpsDeck, подключается сам: видит выделение в заметках, «@ Claude» вставляет ссылку на заметку, может открыть заметку |
-| AI-панель | Справа от терминала: Claude Code / Codex / Gemini / Aider в своём PTY. `Ctrl+Shift+I` показать, `Ctrl+Shift+A` отправить выделение из терминала в AI |
-| Grafana / ArgoCD / GitLab | Вкладки прямо в главном окне (← → ↻ ⌂, вкладки запоминаются) или отдельное окно (⧉). Автологин init-скриптом только на указанном origin. Секреты в системном keyring (Secret Service), метаданные в `~/.config/opsdeck/connectors.json` |
-| Kubernetes | kube-rs. Своё хранилище kubeconfig `~/.config/opsdeck/kubeconfigs` (по файлу на контекст, права 600): ＋ → «Добавить из ~/.kube/config» копирует выбранные контексты, также вставка YAML и drag&drop. Общий `~/.kube/config` не читается и не меняется (включается в ⚙). Вкладки терминала OpsDeck получают `KUBECONFIG` только на хранилище OpsDeck. Таблицы обновляются вживую (watch), для подов и нод — CPU/RAM из metrics-server (у нод — % от allocatable). Helm-релизы (values, история, manifest, notes; rollback / uninstall через helm во вкладке терминала). Argo CD Applications (sync/health, ресурсы приложения, Refresh / Sync). Любые CRD кластера с колонками как у `kubectl get` (additionalPrinterColumns). Вкладка «Детали»: сводка по типу объекта, условия, метки, события объекта, ссылки на связанные объекты (владелец, нода, PVC/ConfigMap/Secret, сервис ingress), обновляется вживую. YAML (server-side apply), логи пода и сразу всех подов Deployment/StatefulSet/DaemonSet/Job (цвет на под, фильтр по тексту и поду, подхватывает новые поды при раскатке), scale / restart / delete, shell / exec / port-forward. Контекст можно скрыть 🙈, сделать «только чтение» 🔒 (блокирует бэкенд) или удалить 🗑 (с резервной копией) |
-| KeePass | Чтение `.kdbx` (KDBX3/4, пароль и/или ключевой файл), только чтение. База расшифрована лишь в памяти, автоблокировка по таймауту. Копирование логина/пароля, пароль стирается из буфера через 30 с. Записи KeePass служат источником кредов для веб-панелей и MikroTik |
-| Заметки | Дерево папок и поиск по vault (Obsidian или любая папка с .md), редактор и просмотр markdown (с `[[wikilinks]]`, HTML санитизируется), daily note по настройкам плагина, открытие в Obsidian через `obsidian://`. Все пути ограничены vault |
-| MikroTik | Список устройств по группам: WinBox с логином и паролем из KeePass/keyring, SSH во вкладку терминала (пароль в буфер), ping |
-| Настройки | ⚙ внизу слева: пути к .kdbx, vault, WinBox (подставляются автоматически, если найдены в домашней папке) |
-| SSH | Профили хостов (группы, порт, ключ `-i`, jump `-J`, пароль из KeePass/keyring → в буфер на 30 с) и хосты из `~/.ssh/config` (подключение по алиасу со всеми настройками, «⧉» — сохранить как профиль). Подключение — вкладка терминала; всё есть в палитре |
-| Алерты | 🔔 со счётчиком. OpsDeck сам опрашивает источники из «Веб-панелей»: Grafana (логин/пароль, токен service account или KeePass), Prometheus Alertmanager и «AI / анализатор» (JSON-лента по URL) — на машину ничего не присылается, IP/NAT не важны. Локальный анализатор может слать находки на `127.0.0.1:9095/api/v1/findings` со своим токеном (адрес, токен и пример curl — в карточке AI-коннектора → «Подключение»). Уведомления на рабочем столе, просмотрено/silenced, история, ссылки на панель/правило/silence открываются во встроенной вкладке Grafana, «⇢ AI» — разбор алерта |
-| Сеть и DNS | ping, mtr, traceroute, dig, nslookup, проверка TCP-порта. Системные бинарники без shell, вывод стримится |
-
-Автологин:
-- **Grafana**: `POST /login` из контекста страницы, cookie сессии остаётся в окне.
-- **ArgoCD**: `POST /api/v1/session` или API-токен в cookie `argocd.token`.
-- **GitLab**: заполняет форму `/users/sign_in`, 2FA вводится руками.
-- Если логин не прошёл, повтор не чаще раза в минуту, чтобы не заблокировать учётку.
-
-## Дорожная карта
-
-**Kubernetes, дальше**
-
-**Хранилища, дальше**
-- KeePass: TOTP, запись в базу (сейчас только чтение, правки — в KeePassXC)
-- MikroTik: импорт устройств из mikrotik-gitops / neighbours, бэкап конфига в git
-- Obsidian: «сохранить выделение из терминала в заметку»
-
-**Терминал, дальше**
-- AI-подсказка команды по описанию прямо в строке ввода
+---
 
 ## Безопасность
 
-- **Секреты**: пароли и токены — в системном хранилище (Secret Service / Keychain / Credential Manager) или в KeePass; база KeePass только в памяти, автоблокировка; пароли в буфере стираются через 30 с. Конфиги в `~/.config/opsdeck` с правами 600 (папки 700).
-- **Сеть**: OpsDeck не слушает внешние интерфейсы. Мост для Claude Code и приём находок AI — только `127.0.0.1`, по токену (сравнение за постоянное время); приём дополнительно проверяет `Host` (защита от DNS rebinding), мост отвергает запросы с `Origin` (браузеры).
-- **Веб-панели**: чужие страницы (Grafana и т.п.) не имеют доступа к IPC приложения; автологин срабатывает только на origin коннектора и берёт оригинальный `fetch`. Ссылки из алертов открываются во вкладке, только если совпадает origin, иначе — в системном браузере.
-- **Интерфейс**: строгая CSP (скрипты только из приложения, без inline/eval); все данные кластеров, алертов и заметок экранируются, markdown — через DOMPurify.
-- **Команды**: внешние программы запускаются без shell, адреса и аргументы валидируются (опции через поля не подсунуть). Kubernetes: режим «только чтение» блокирует изменения на бэкенде; при импорте kubeconfig с `exec` OpsDeck показывает, какие команды он запускает.
-- **Проверки**: `npm audit` — 0 уязвимостей; `cargo audit` — 0 уязвимостей (7 предупреждений «unmaintained/unsound» в транзитивных зависимостях Tauri/GTK, не используемых напрямую). Обе проверки идут в CI.
+- Секреты — только в системном хранилище или KeePass; база KeePass расшифрована лишь в памяти; пароли в буфере стираются через 30 с.
+- OpsDeck не слушает внешние интерфейсы: мост для Claude Code и приём находок AI — только `127.0.0.1`, по токену, с защитой от запросов из браузера и DNS rebinding.
+- Встроенные веб-страницы не имеют доступа к API приложения; автологин работает только на адресе коннектора.
+- Строгая CSP интерфейса, экранирование всех внешних данных, Markdown через DOMPurify.
+- Внешние программы запускаются без shell, аргументы валидируются; при импорте kubeconfig с `exec` показываются запускаемые им команды.
+- В CI — `npm audit` и `cargo audit` на каждую сборку, Dependabot для зависимостей.
 
-## Ограничения
+Нашли уязвимость? См. [SECURITY.md](SECURITY.md).
 
-- Веб-панели — нативные webview поверх интерфейса (на Linux через GtkOverlay над основным webview). Пока открыта панель, горячие клавиши OpsDeck работают после клика по интерфейсу, а всплывающие уведомления могут оказаться под ней. Если встраивание ведёт себя странно, запустите с `OPSDECK_NO_EMBED=1` — останутся отдельные окна.
+---
 
-- Самоподписанные TLS-сертификаты webkit2gtk по умолчанию не принимает. Добавьте CA в систему (`/usr/local/share/ca-certificates` + `update-ca-certificates`).
-- Windows: интеграция shell (блоки команд) есть для bash/zsh; в PowerShell терминал работает без блоков. `mtr`/`dig` на Windows обычно отсутствуют.
-- WinBox получает пароль аргументом командной строки (иначе он не умеет), поэтому пароль виден в списке процессов вашего пользователя, пока WinBox запущен.
-- SSO/OAuth-вход (Keycloak, Google и т.п.) автоматом не проходит, но после ручного входа сессия в окне сохраняется.
+## Известные ограничения
+
+- Веб-панели — нативные webview поверх интерфейса: пока фокус внутри панели, горячие клавиши OpsDeck не срабатывают. Если встраивание ведёт себя странно, запустите с `OPSDECK_NO_EMBED=1` — панели будут открываться отдельными окнами.
+- SSO-вход (Keycloak, Google) и 2FA в веб-панелях проходятся вручную один раз.
+- Блоки команд работают в bash и zsh; в PowerShell терминал работает без блоков. На Windows обычно нет `mtr` и `dig`.
+- WinBox принимает пароль только аргументом командной строки — пока он запущен, пароль виден в списке процессов вашего пользователя.
+
+---
+
+## Участие
+
+Issues и pull requests приветствуются. Перед PR: `npx tsc` в корне и `cargo check` в `src-tauri` должны проходить без ошибок.
+
+## Лицензия
+
+[MIT](LICENSE) © 2026 alex
