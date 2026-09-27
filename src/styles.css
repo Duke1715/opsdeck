@@ -398,3 +398,5 @@ pre.ro-text { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; background
 .web-slot { flex: 1; min-height: 0; background: var(--bg); }
 .web-home { flex: 1; }
 .web-nav { display: flex; gap: 2px; }
+a.dlink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+a.dlink:hover { text-decoration: underline; }

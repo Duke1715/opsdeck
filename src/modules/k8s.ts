@@ -711,6 +711,7 @@ export function mountK8s(root: HTMLElement) {
       return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""}">${cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${esc(v)}</td>`).join("")}</tr>`;
     }).join("");
     countEl.textContent = ctx ? `${rows.length}${rows.length !== items.length ? ` из ${items.length}` : ""}` : "";
+    openPending();
     syncDetails();
   }
 
@@ -875,6 +876,8 @@ export function mountK8s(root: HTMLElement) {
     const el = drawerBody.querySelector<HTMLElement>(".details")!;
     el.scrollTop = scroll;
     el.onclick = (e) => {
+      const a = (e.target as HTMLElement).closest<HTMLElement>(".dlink");
+      if (a) return navigateTo(a.dataset.kind!, a.dataset.ns ?? "", a.dataset.name!);
       const key = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]")?.dataset.secret;
       if (!key) return;
       let text: string;
@@ -885,6 +888,33 @@ export function mountK8s(root: HTMLElement) {
       (e.target as HTMLElement).replaceWith(code);
       detailsVersion = "pinned"; // keep the revealed value until the object actually changes
     };
+  }
+
+  /** Jump to another object: switch the resource table (and namespace if needed), then open it. */
+  let pendingOpen: { ns: string; name: string } | null = null;
+  function navigateTo(kindName: string, ns: string, name: string) {
+    const target = allKinds().find((k) => k.id === kindName);
+    if (!target) return toast(`Нет таблицы для ${kindName}`, "err");
+    pendingOpen = { ns: target.namespaced ? ns : "", name };
+    let nsChanged = false;
+    if (target.namespaced && nsSel.value && nsSel.value !== ns) {
+      nsSel.value = [...nsSel.options].some((o) => o.value === ns) ? ns : "";
+      store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
+      nsChanged = true;
+    }
+    if (target === kind) {
+      if (nsChanged) { closeDrawer(); startWatch(); } else openPending();
+      return;
+    }
+    selectKind(target);
+  }
+  function openPending() {
+    if (!pendingOpen) return;
+    const o = items.find((x) => x.metadata.name === pendingOpen!.name && (x.metadata.namespace ?? "") === pendingOpen!.ns);
+    if (!o) return;
+    pendingOpen = null;
+    openDrawer(o);
+    tbody.querySelector("tr.sel")?.scrollIntoView({ block: "nearest" });
   }
 
   /** Called from render(): refresh the open details panel from the live list. */

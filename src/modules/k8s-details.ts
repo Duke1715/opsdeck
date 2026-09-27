@@ -59,6 +59,12 @@ export function jsonPath(obj: Obj, path: string): string {
 
 const row = (k: string, v: unknown, cls = "") =>
   v === undefined || v === null || v === "" ? "" : `<div class="dk">${esc(k)}</div><div class="dv ${cls}">${esc(v)}</div>`;
+/** Link to another object; k8s.ts navigates on click. */
+const link = (kind: string, name?: string, ns?: string, text = name) =>
+  name ? `<a class="dlink" data-kind="${esc(kind)}" data-name="${esc(name)}" data-ns="${esc(ns ?? "")}">${esc(text)}</a>` : "";
+const rowHtml = (k: string, html: string) => (html ? `<div class="dk">${esc(k)}</div><div class="dv">${html}</div>` : "");
+/** Kubernetes Kind → table id used by the Kubernetes view ("ReplicaSet" → "replicasets"). */
+export const kindId = (k: string) => { const l = k.toLowerCase(); return l.endsWith("s") ? `${l}es` : `${l}s`; };
 const grid = (rows: string) => (rows.trim() ? `<div class="dgrid">${rows}</div>` : "");
 const section = (title: string, body: string) => (body.trim() ? `<section class="dsec"><h4>${esc(title)}</h4>${body}</section>` : "");
 const table = (head: string[], rows: string[][], clsFor?: (r: number, c: number) => string) =>
@@ -120,16 +126,21 @@ function kindSpecific(kind: string, o: Obj): string {
   switch (kind) {
     case "pods":
       return section("Под", grid(
-        row("Фаза", st.phase, statusClass(st.phase ?? "")) + row("Нода", s.nodeName) + row("Pod IP", st.podIP) + row("Host IP", st.hostIP) +
+        row("Фаза", st.phase, statusClass(st.phase ?? "")) + rowHtml("Нода", link("nodes", s.nodeName)) + row("Pod IP", st.podIP) + row("Host IP", st.hostIP) +
         row("QoS", st.qosClass) + row("ServiceAccount", s.serviceAccountName) + row("Restart policy", s.restartPolicy) +
         row("Запущен", when(st.startTime)) + row("Priority class", s.priorityClassName)))
         + section("Init-контейнеры", containers(s, st.initContainerStatuses, true))
         + section("Контейнеры", containers(s, st.containerStatuses))
-        + section("Тома", table(["Имя", "Источник"], (s.volumes ?? []).map((v: Obj) => {
-          const [src, cfg] = Object.entries(v).find(([k]) => k !== "name") ?? ["", {}];
-          const ref = (cfg as Obj)?.claimName ?? (cfg as Obj)?.secretName ?? (cfg as Obj)?.name ?? (cfg as Obj)?.path ?? "";
-          return [v.name, `${src}${ref ? `: ${ref}` : ""}`];
-        })));
+        + section("Тома", (s.volumes ?? []).length ? `<table class="res dtable"><thead><tr><th>Имя</th><th>Источник</th></tr></thead><tbody>${
+          (s.volumes as Obj[]).map((v) => {
+            const [src, cfg] = Object.entries(v).find(([k]) => k !== "name") ?? ["", {}];
+            const c = cfg as Obj;
+            const target = src === "persistentVolumeClaim" ? link("persistentvolumeclaims", c?.claimName, o.metadata.namespace)
+              : src === "configMap" ? link("configmaps", c?.name, o.metadata.namespace)
+              : src === "secret" ? link("secrets", c?.secretName, o.metadata.namespace)
+              : esc(c?.path ?? "");
+            return `<tr><td>${esc(v.name)}</td><td>${esc(src)}${target ? ": " + target : ""}</td></tr>`;
+          }).join("")}</tbody></table>` : "");
     case "deployments": case "statefulsets": case "daemonsets": case "replicasets": {
       const want = kind === "daemonsets" ? st.desiredNumberScheduled : s.replicas;
       const ready = kind === "daemonsets" ? st.numberReady : st.readyReplicas;
@@ -160,9 +171,12 @@ function kindSpecific(kind: string, o: Obj): string {
       return section("Ingress", grid(row("Class", s.ingressClassName) +
         row("Адрес", (st.loadBalancer?.ingress ?? []).map((i: Obj) => i.ip ?? i.hostname).join(", ")) +
         row("TLS", (s.tls ?? []).map((t: Obj) => `${(t.hosts ?? []).join(", ")} → ${t.secretName ?? ""}`).join("; "))))
-        + section("Правила", table(["Хост", "Путь", "Тип", "Backend"], (s.rules ?? []).flatMap((r: Obj) =>
-          (r.http?.paths ?? []).map((p: Obj) => [r.host ?? "*", p.path ?? "/", p.pathType ?? "",
-            p.backend?.service ? `${p.backend.service.name}:${p.backend.service.port?.number ?? p.backend.service.port?.name}` : JSON.stringify(p.backend)]))));
+        + section("Правила", (s.rules ?? []).length ? `<table class="res dtable"><thead><tr><th>Хост</th><th>Путь</th><th>Тип</th><th>Backend</th></tr></thead><tbody>${
+          (s.rules as Obj[]).flatMap((r) => (r.http?.paths ?? []).map((p: Obj) => {
+            const svc = p.backend?.service;
+            const backend = svc ? `${link("services", svc.name, o.metadata.namespace)}:${esc(svc.port?.number ?? svc.port?.name)}` : esc(JSON.stringify(p.backend));
+            return `<tr><td>${esc(r.host ?? "*")}</td><td>${esc(p.path ?? "/")}</td><td>${esc(p.pathType ?? "")}</td><td>${backend}</td></tr>`;
+          })).join("")}</tbody></table>` : "");
     case "nodes": {
       const ni = st.nodeInfo ?? {};
       const keys = ["cpu", "memory", "pods", "ephemeral-storage"];
@@ -185,11 +199,11 @@ function kindSpecific(kind: string, o: Obj): string {
     case "persistentvolumeclaims":
       return section("PVC", grid(row("Статус", st.phase, statusClass(st.phase ?? "")) + row("Запрошено", s.resources?.requests?.storage) +
         row("Выделено", st.capacity?.storage) + row("Доступ", (s.accessModes ?? []).join(", ")) + row("StorageClass", s.storageClassName) +
-        row("Volume", s.volumeName) + row("Volume mode", s.volumeMode)));
+        rowHtml("Volume", link("persistentvolumes", s.volumeName)) + row("Volume mode", s.volumeMode)));
     case "persistentvolumes":
       return section("PV", grid(row("Статус", st.phase, statusClass(st.phase ?? "")) + row("Размер", s.capacity?.storage) +
         row("Доступ", (s.accessModes ?? []).join(", ")) + row("Reclaim", s.persistentVolumeReclaimPolicy) + row("StorageClass", s.storageClassName) +
-        row("Claim", s.claimRef ? `${s.claimRef.namespace}/${s.claimRef.name}` : "")));
+        rowHtml("Claim", s.claimRef ? link("persistentvolumeclaims", s.claimRef.name, s.claimRef.namespace, `${s.claimRef.namespace}/${s.claimRef.name}`) : "")));
     case "applications": {
       const src = s.source ?? s.sources?.[0] ?? {};
       return section("Argo CD", grid(row("Sync", st.sync?.status, statusClass(st.sync?.status ?? "")) +
@@ -208,11 +222,11 @@ function kindSpecific(kind: string, o: Obj): string {
 /** Details panel HTML for any object (built-in or custom resource). */
 export function detailsHtml(kind: string, o: Obj, events: Obj[] | null): string {
   const m = o.metadata ?? {};
-  const owners = (m.ownerReferences ?? []).map((r: Obj) => `${r.kind}/${r.name}`).join(", ");
+  const owners = (m.ownerReferences ?? []).map((r: Obj) => link(kindId(r.kind), r.name, m.namespace, `${r.kind}/${r.name}`)).join(", ");
   const ann = Object.entries((m.annotations ?? {}) as Record<string, string>);
   return `<div class="details">
     ${section("Общее", grid(row("Имя", m.name) + row("Namespace", m.namespace) + row("Создан", when(m.creationTimestamp)) +
-      row("Владелец", owners) + row("UID", m.uid) + row("Finalizers", (m.finalizers ?? []).join(", ")) +
+      rowHtml("Владелец", owners) + row("UID", m.uid) + row("Finalizers", (m.finalizers ?? []).join(", ")) +
       row("Удаляется", m.deletionTimestamp ? when(m.deletionTimestamp) : "", "warn")))}
     ${kindSpecific(kind, o)}
     ${section("Условия", conditions(o.status?.conditions))}
