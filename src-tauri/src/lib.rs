@@ -7,6 +7,7 @@ mod mikrotik;
 mod notes;
 mod settings;
 mod snippets;
+mod ssh;
 mod store;
 mod pty;
 mod tools;
@@ -91,6 +92,11 @@ pub fn run() {
             notes::note_open_obsidian,
             notes::note_daily,
             snippets::snippets_list,
+            ssh::ssh_list,
+            ssh::ssh_keys,
+            ssh::ssh_save,
+            ssh::ssh_delete,
+            ssh::ssh_connect,
             snippets::snippets_save,
             ide::ide_selection,
             ide::ide_editor,

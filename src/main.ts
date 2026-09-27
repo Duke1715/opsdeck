@@ -8,6 +8,7 @@ import { mountKeepass } from "./modules/keepass";
 import { mountNotes } from "./modules/notes";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountSettings } from "./modules/settings";
+import { mountSsh } from "./modules/ssh";
 import { registerProvider } from "./modules/palette";
 
 type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
@@ -17,6 +18,7 @@ const views: View[] = [
   { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
   { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
+  { id: "ssh", icon: "🖧", title: "SSH", mount: mountSsh },
   { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
   { id: "vault", icon: "🔑", title: "KeePass", mount: mountKeepass },
   { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
