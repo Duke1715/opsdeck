@@ -10,6 +10,7 @@ import { mountMikrotik } from "./modules/mikrotik";
 import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
+import { checkUpdates } from "./modules/updates";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { registerProvider } from "./modules/palette";
@@ -68,6 +69,13 @@ const setAlertBadge = (n: number) => {
 };
 listen<number>("alerts-changed", (e) => setAlertBadge(e.payload));
 invoke<{ firing: number }>("alerts_get", { historyLimit: 0 }).then((v) => setAlertBadge(v.firing)).catch(() => {});
+
+// quiet update check a little after startup (if enabled in settings)
+setTimeout(() => {
+  invoke<{ update_auto_check: boolean }>("settings_get")
+    .then((s) => { if (s.update_auto_check) checkUpdates(true); })
+    .catch(() => {});
+}, 8000);
 
 registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.icon, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));

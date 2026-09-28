@@ -470,3 +470,12 @@ kbd { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); bord
 .al-onboard { padding: 18px 22px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; line-height: 1.5; }
 .al-onboard h3, .al-onboard p { margin: 0; }
 .help-body ol { margin: 4px 0; padding-left: 20px; } .help-body ol li { margin: 3px 0; }
+
+/* updates */
+#sidebar button.has-update::after { content: "↑"; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font: 700 10px/14px system-ui; text-align: center; }
+.upd-root { display: flex; flex-direction: column; gap: 8px; }
+.upd-new { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--radius); }
+.upd-notes { margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap; font: 12px/1.5 system-ui; color: var(--muted); }
+.upd-progress { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.upd-bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }

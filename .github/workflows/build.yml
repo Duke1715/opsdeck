@@ -1,6 +1,7 @@
 # Сборка OpsDeck под Linux / Windows / macOS на нативных раннерах (своя ОС и архитектура,
 # без кросс-компиляции). Пуш в main/master и PR — сборка + артефакты в Actions;
-# тег v* (например v0.2.0) — ещё и черновик релиза со всеми установщиками.
+# тег v* (например v0.2.0, удобнее через `npm run release -- 0.2.0 "что нового"`) — ещё и
+# публикация релиза с подписанными файлами обновлений (latest.json) для встроенного обновления.
 name: build
 
 on:
@@ -66,8 +67,21 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental == true }}
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Release notes from the tag message
+        if: env.RELEASE == 'true'
+        shell: bash
+        run: |
+          git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}"
+          {
+            echo "RELEASE_NOTES<<__EOF__"
+            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}"
+            echo "__EOF__"
+          } >> "$GITHUB_ENV"
 
       - name: Linux deps (WebKitGTK и т.д.)
         if: runner.os == 'Linux'
@@ -96,13 +110,19 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # подпись обновлений (только релизы): Settings → Secrets and variables → Actions
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          # только на тегах v*: черновик релиза с установщиками всех платформ
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          # на тегах дополнительно собираются подписанные файлы обновлений + latest.json
+          args: >-
+            ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+            ${{ env.RELEASE == 'true' && '--config src-tauri/tauri.release.conf.json' || '' }}
+          tagName: ${{ env.RELEASE == 'true' && github.ref_name || '' }}
           releaseName: OpsDeck ${{ github.ref_name }}
-          releaseBody: Сборки OpsDeck. macOS-сборки не подписаны — см. README.
-          releaseDraft: true
+          releaseBody: ${{ env.RELEASE_NOTES }}
+          # релиз публикуется сразу — иначе установленные копии не увидят обновление
+          releaseDraft: false
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

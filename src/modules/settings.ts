@@ -2,10 +2,11 @@ import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
+import { mountUpdates } from "./updates";
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number;
-  obsidian_vault: string; winbox_path: string; k8s_include_system: boolean;
+  obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; update_auto_check: boolean;
 };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 
@@ -26,6 +27,11 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" name="k8s_include_system" /> Показывать и контексты из общего ~/.kube/config</label>
           <p class="muted hint">Выключено: OpsDeck работает только со своими копиями (＋ в разделе Kubernetes → «Добавить из ~/.kube/config»), и kubectl во вкладках OpsDeck видит только их. Ваш ~/.kube/config не меняется.</p>
         </fieldset>
+        <fieldset><legend>Обновления</legend>
+          <div class="upd-root"></div>
+          <label class="check"><input type="checkbox" name="update_auto_check" /> Проверять при запуске</label>
+          <p class="muted hint">Новые версии берутся из GitHub Releases проекта; каждое обновление подписано, и OpsDeck не установит файл с неверной подписью.</p>
+        </fieldset>
         <fieldset><legend>MikroTik</legend>
           <label>WinBox <input name="winbox_path" list="dl-wb" spellcheck="false" /></label>
         </fieldset>
@@ -38,6 +44,7 @@ export function mountSettings(root: HTMLElement) {
 
   const form = root.querySelector("form")!;
   mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
+  mountUpdates(root.querySelector<HTMLElement>(".upd-root")!);
   const f = (n: keyof Settings) => form.elements.namedItem(n) as HTMLInputElement;
 
   async function load() {
@@ -63,6 +70,7 @@ export function mountSettings(root: HTMLElement) {
       keepass_lock_minutes: Number(f("keepass_lock_minutes").value) || 0,
       obsidian_vault: f("obsidian_vault").value.trim(), winbox_path: f("winbox_path").value.trim(),
       k8s_include_system: f("k8s_include_system").checked,
+      update_auto_check: f("update_auto_check").checked,
     };
     try {
       await invoke("settings_set", { settings });

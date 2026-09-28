@@ -14,11 +14,13 @@ mod ssh;
 mod store;
 mod pty;
 mod tools;
+mod updater;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(pty::PtyState::default())
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
@@ -107,6 +109,9 @@ pub fn run() {
             notes::note_open_obsidian,
             notes::note_daily,
             snippets::snippets_list,
+            updater::update_check,
+            updater::app_version,
+            updater::update_install,
             alerts::alerts_get,
             alerts::alerts_ack,
             alerts::alerts_clear,

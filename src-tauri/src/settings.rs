@@ -16,6 +16,8 @@ pub struct Settings {
     pub winbox_path: String,
     /// Also list contexts from ~/.kube/config and $KUBECONFIG (off: OpsDeck uses only its own store).
     pub k8s_include_system: bool,
+    /// check GitHub Releases for a newer version at startup
+    pub update_auto_check: bool,
 }
 
 impl Default for Settings {
@@ -27,6 +29,7 @@ impl Default for Settings {
             obsidian_vault: String::new(),
             winbox_path: String::new(),
             k8s_include_system: false,
+            update_auto_check: true,
         }
     }
 }
