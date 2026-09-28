@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Desktop cockpit for DevOps engineers (Tauri backend)"
 license = "MIT"
-authors = ["alex"]
+authors = ["LeoAlecksey"]
+repository = "https://github.com/LeoAlecksey/opsdeck"
 
 [lib]
 name = "opsdeck_lib"

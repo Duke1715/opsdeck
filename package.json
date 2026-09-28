@@ -22,5 +22,10 @@
   },
   "description": "Desktop cockpit for DevOps engineers: Warp-style terminal with AI, Kubernetes, embedded Grafana/ArgoCD/GitLab, alerts, KeePass, SSH, MikroTik, notes",
   "license": "MIT",
-  "author": "alex"
+  "author": "LeoAlecksey",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LeoAlecksey/opsdeck.git"
+  },
+  "homepage": "https://github.com/LeoAlecksey/opsdeck"
 }

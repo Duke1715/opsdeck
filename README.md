@@ -1,5 +1,8 @@
 # OpsDeck
 
+[![build](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml/badge.svg)](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом, Kubernetes, Grafana/ArgoCD/GitLab во вкладках, алерты, KeePass, SSH, MikroTik и заметки — в одном нативном приложении для Linux, Windows и macOS.
 
 > *English:* OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
@@ -43,12 +46,16 @@
 ## Установка
 
 ### Готовые сборки
-Установщики для Linux (`.deb`, `.rpm`, `.AppImage`), Windows (`.msi`, `.exe`) и macOS (`.dmg`) публикуются в **Releases** и собираются GitHub Actions на каждый тег `v*` (см. [Сборка в CI](#сборка-в-ci)).
+Установщики для Linux (`.deb`, `.rpm`, `.AppImage`), Windows (`.msi`, `.exe`) и macOS (`.dmg`) публикуются в [**Releases**](https://github.com/LeoAlecksey/opsdeck/releases) и собираются GitHub Actions на каждый тег `v*` (см. [Сборка в CI](#сборка-в-ci)).
 
 > macOS-сборки пока не подписаны: при первом запуске откройте приложение через правый клик → «Открыть» или выполните `xattr -dr com.apple.quarantine /Applications/OpsDeck.app`.
 
 ### Сборка из исходников
 Нужны [Rust](https://rustup.rs) (stable) и Node.js 20+.
+
+```bash
+git clone https://github.com/LeoAlecksey/opsdeck.git && cd opsdeck
+```
 
 **Linux (Debian/Ubuntu)** — системные библиотеки:
 ```bash
@@ -134,8 +141,8 @@ src-tauri/src/        бэкенд на Rust
 
 ## Участие
 
-Issues и pull requests приветствуются. Перед PR: `npx tsc` в корне и `cargo check` в `src-tauri` должны проходить без ошибок.
+[Issues](https://github.com/LeoAlecksey/opsdeck/issues) и pull requests приветствуются. Перед PR: `npx tsc` в корне и `cargo check` в `src-tauri` должны проходить без ошибок.
 
 ## Лицензия
 
-[MIT](LICENSE) © 2026 alex
+[MIT](LICENSE) © 2026 [LeoAlecksey](https://github.com/LeoAlecksey)
