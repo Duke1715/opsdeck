@@ -18,6 +18,9 @@ pub struct Connector {
     /// grafana | argocd | gitlab | alertmanager | ai | generic
     pub kind: String,
     pub name: String,
+    /// row on the web panels page (like a Grafana dashboard row); empty = ungrouped
+    #[serde(default)]
+    pub group: String,
     pub url: String,
     #[serde(default)]
     pub username: String,

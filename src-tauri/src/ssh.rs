@@ -44,6 +44,8 @@ fn default_auth() -> String {
 
 #[derive(Serialize, Default)]
 pub struct ConfigHost {
+    /// effective values as ssh resolves them (`ssh -G alias`): user, hostname, port, identity
+    effective: Option<Effective>,
     alias: String,
     hostname: String,
     user: String,
@@ -115,9 +117,55 @@ fn parse_config() -> Vec<ConfigHost> {
     out
 }
 
+#[derive(Serialize, Default)]
+pub struct Effective {
+    user: String,
+    hostname: String,
+    port: String,
+    identity_files: Vec<String>,
+    proxy_jump: String,
+}
+
+/// What ssh will really use for an alias. No network access: `-G` only evaluates the config.
+fn effective(alias: &str) -> Option<Effective> {
+    let out = std::process::Command::new("ssh").args(["-G", alias]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let mut e = Effective::default();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let Some((k, v)) = line.split_once(' ') else { continue };
+        match k {
+            "user" => e.user = v.into(),
+            "hostname" => e.hostname = v.into(),
+            "port" => e.port = v.into(),
+            "identityfile" => e.identity_files.push(v.into()),
+            "proxyjump" if v != "none" => e.proxy_jump = v.into(),
+            _ => {}
+        }
+    }
+    Some(e)
+}
+
 #[tauri::command]
-pub fn ssh_list() -> Result<SshList, String> {
-    Ok(SshList { hosts: load()?, config: parse_config() })
+pub async fn ssh_list() -> Result<SshList, String> {
+    let hosts = load()?;
+    let config = tauri::async_runtime::spawn_blocking(|| {
+        let mut list = parse_config();
+        for h in &mut list {
+            h.effective = effective(&h.alias);
+        }
+        list
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(SshList { hosts, config })
+}
+
+/// Local login name — ssh falls back to it when no User applies (a common misconfiguration).
+#[tauri::command]
+pub fn ssh_local_user() -> String {
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
 }
 
 /// Private key candidates in ~/.ssh (files that have a matching .pub, or start with id_).
@@ -236,4 +284,5 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
     }
     Ok(SshSpec { program: "ssh".into(), args, password_copied: copied })
 }
+
 

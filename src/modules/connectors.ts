@@ -4,7 +4,7 @@ import { pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 
-type Connector = { id: string; kind: string; name: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
+type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
@@ -44,7 +44,11 @@ export function mountConnectors(root: HTMLElement) {
         <form method="dialog">
           <h3>Коннектор</h3>
           <label>Тип <select name="kind"></select></label>
-          <label>Название <input name="name" required placeholder="prod grafana" /></label>
+          <div class="grid2">
+            <label>Название <input name="name" required placeholder="prod grafana" /></label>
+            <label>Группа <input name="group" list="conn-groups" placeholder="Мониторинг, CI/CD…" /></label>
+          </div>
+          <datalist id="conn-groups"></datalist>
           <label><span class="url-label">URL</span> <input name="url" type="url" required placeholder="https://grafana.example.com" /></label>
           <label>Авторизация <select name="auth"></select></label>
           <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
@@ -190,7 +194,7 @@ export function mountConnectors(root: HTMLElement) {
     res.textContent = "Сохраняю и опрашиваю…";
     const connector: Connector = {
       id: editing?.id ?? crypto.randomUUID(),
-      kind: f("kind").value, name: f("name").value.trim(), url: f("url").value.trim(),
+      kind: f("kind").value, name: f("name").value.trim(), group: f("group").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       ingest_token: editing?.ingest_token ?? "",
@@ -217,6 +221,9 @@ export function mountConnectors(root: HTMLElement) {
     form.querySelector<HTMLElement>(".form-err")!.textContent = "";
     f("kind").value = c?.kind ?? presetKind ?? "grafana";
     f("name").value = c?.name ?? "";
+    f("group").value = c?.group ?? "";
+    form.querySelector("#conn-groups")!.innerHTML = [...new Set(allConnectors.map((x) => x.group).filter(Boolean))]
+      .map((g) => `<option value="${esc(g!)}">`).join("");
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
     setBound(c?.keepass_entry ?? "");
@@ -235,7 +242,7 @@ export function mountConnectors(root: HTMLElement) {
     e.preventDefault();
     const connector: Connector = {
       id: editing?.id ?? crypto.randomUUID(),
-      kind: f("kind").value, name: f("name").value.trim(), url: f("url").value.trim(),
+      kind: f("kind").value, name: f("name").value.trim(), group: f("group").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       ingest_token: editing?.ingest_token ?? "",
@@ -260,12 +267,36 @@ export function mountConnectors(root: HTMLElement) {
     }
   });
 
+  let allConnectors: Connector[] = [];
+  const closedRows = new Set<string>((() => { try { return JSON.parse(localStorage.getItem("opsdeck.web.closedRows") ?? "[]"); } catch { return []; } })());
+
   async function refresh() {
     const list = await invoke<Connector[]>("connectors_list").catch((e) => {
       cards.textContent = String(e);
       return [];
     });
+    allConnectors = list;
     cards.innerHTML = list.length ? "" : `<p class="muted">Пока пусто — добавьте Grafana, ArgoCD или GitLab.</p>`;
+    // rows like on a Grafana dashboard: one collapsible row per group, ungrouped panels first
+    const rows = new Map<string, Connector[]>();
+    for (const c of [...list].sort((a, b) => a.name.localeCompare(b.name))) rows.set(c.group ?? "", [...(rows.get(c.group ?? "") ?? []), c]);
+    const order = [...rows.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+    const grouped = order.some((g) => g !== "");
+    const containers = new Map<string, HTMLElement>();
+    for (const g of order) {
+      if (!grouped) { containers.set(g, cards); break; }
+      const row = document.createElement("details");
+      row.className = "conn-row";
+      row.open = !closedRows.has(g);
+      row.innerHTML = `<summary><span class="conn-row-title">${esc(g || "Без группы")}</span><span class="conn-row-count">${rows.get(g)!.length}</span></summary><div class="cards"></div>`;
+      row.addEventListener("toggle", () => {
+        row.open ? closedRows.delete(g) : closedRows.add(g);
+        try { localStorage.setItem("opsdeck.web.closedRows", JSON.stringify([...closedRows])); } catch { /* ignore */ }
+      });
+      cards.appendChild(row);
+      containers.set(g, row.querySelector<HTMLElement>(".cards")!);
+    }
+    cards.classList.toggle("grouped", grouped);
     for (const c of list) {
       const card = document.createElement("div");
       card.className = `card kind-${c.kind}`;
@@ -276,14 +307,15 @@ export function mountConnectors(root: HTMLElement) {
         <div class="card-actions">
           <button class="primary" data-act="open">Открыть</button>
           <button class="ghost" data-act="window" title="Открыть в отдельном окне">⧉</button>
-          <button class="ghost" data-act="edit">Изменить</button>
-          <button class="ghost danger" data-act="del">Удалить</button>
+          <span class="spacer"></span>
+          <button class="icon" data-act="edit" title="Изменить">✎</button>
+          <button class="icon danger" data-act="del" title="Удалить">🗑</button>
         </div>`;
       card.querySelector(".card-kind")!.textContent = KINDS[c.kind]?.label ?? c.kind;
       card.querySelector(".card-name")!.textContent = c.name;
       card.querySelector(".card-url")!.textContent = c.url || (c.kind === "ai" ? `push → 127.0.0.1:${ingestPort}` : "");
       if (!c.url || c.kind === "ai") card.querySelectorAll<HTMLElement>("[data-act=open], [data-act=window]").forEach((b) => b.remove());
-      if (c.kind === "ai") card.querySelector<HTMLElement>("[data-act=edit]")!.textContent = "Подключение";
+      if (c.kind === "ai") card.querySelector<HTMLElement>("[data-act=edit]")!.title = "Подключение: адрес, токен, пример";
       card.querySelector<HTMLElement>("[data-act=open]")!.onclick = () => openTab(c);
       card.querySelector<HTMLElement>("[data-act=window]")!.onclick = () =>
         invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err"));
@@ -295,7 +327,7 @@ export function mountConnectors(root: HTMLElement) {
           refresh();
         }
       };
-      cards.appendChild(card);
+      (containers.get(c.group ?? "") ?? cards).appendChild(card);
     }
   }
 

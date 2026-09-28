@@ -849,6 +849,7 @@ pub async fn k8s_watch_start(
         let (mut applied, mut deleted): (Vec<Value>, Vec<String>) = (Vec::new(), Vec::new());
         let mut tick = tokio::time::interval(Duration::from_millis(300));
         let mut errored = false;
+        let mut listed = false; // got at least one full list
         let to_value = |o: DynamicObject| serde_json::to_value(o).ok().map(clean);
         loop {
             tokio::select! {
@@ -860,8 +861,14 @@ pub async fn k8s_watch_start(
                 ev = stream.next() => match ev {
                     None => break,
                     Some(Err(e)) => {
-                        // the watcher retries with backoff; report the first error of a streak only
-                        if !errored { let _ = app.emit(&event, json!({ "type": "error", "message": e.to_string() })); }
+                        // Dropped watch connections ("error reading a body from connection") are routine:
+                        // API servers/proxies close long-lived streams and the watcher resumes by itself.
+                        // Only tell the UI when nothing could be listed yet or access is denied.
+                        let msg = e.to_string();
+                        let denied = ["401", "403", "Unauthorized", "Forbidden", "forbidden"].iter().any(|k| msg.contains(k));
+                        if (!listed || denied) && !errored {
+                            let _ = app.emit(&event, json!({ "type": "error", "message": msg }));
+                        }
                         errored = true;
                     }
                     Some(Ok(ev)) => {
@@ -870,6 +877,7 @@ pub async fn k8s_watch_start(
                             watcher::Event::Init => init.clear(),
                             watcher::Event::InitApply(o) => init.extend(to_value(o)),
                             watcher::Event::InitDone => {
+                                listed = true;
                                 applied.clear();
                                 deleted.clear();
                                 let _ = app.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));

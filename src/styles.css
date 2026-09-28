@@ -479,3 +479,38 @@ kbd { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); bord
 .upd-notes { margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap; font: 12px/1.5 system-ui; color: var(--muted); }
 .upd-progress { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
 .upd-bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.ssh-warn { color: #e6c07b; cursor: help; margin-right: 6px; }
+.card-actions .icon { font-size: 15px; padding: 2px 8px; }
+
+/* alerts: toolbar, sections, groups */
+.al-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.al-sev-filter button { font-size: 12px; padding: 3px 10px; }
+.al-sev-filter button b { font-weight: 600; margin-left: 4px; }
+.al-sev-filter button:not(.active) { opacity: .45; }
+.al-sev-filter [data-sev=crit].active { color: var(--danger); }
+.al-sev-filter [data-sev=warn].active { color: #e6c07b; }
+.al-sev-filter [data-sev=info].active { color: #61afef; }
+.al-section > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-weight: 600; }
+.al-section > summary::before { content: "▸"; font-size: 10px; color: var(--muted); transition: transform .12s; }
+.al-section[open] > summary::before { transform: rotate(90deg); }
+.al-sec-count { font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+.al-section .muted { font-weight: 400; font-size: 12px; }
+.al-sec-body { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.al-section[data-sec=old] .al-card, .al-section[data-sec=quiet] .al-card { opacity: .75; }
+.al-count { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--panel-2); border-radius: 10px; padding: 0 7px; }
+.al-instances summary { cursor: pointer; font-size: 12px; }
+.al-instances table { margin-top: 4px; font-size: 12px; }
+.al-instances td { padding: 3px 8px; white-space: normal; }
+.al-inst-links { text-align: right; white-space: nowrap !important; width: 1%; }
+.al-inst-links button { padding: 0 8px; font-size: 11.5px; }
+.al-muted-list { display: flex; flex-direction: column; gap: 4px; }
+.al-muted-list p { margin: 0; font-size: 12px; }
+
+/* web panels: rows (like Grafana dashboard rows) */
+.cards.grouped { display: flex; flex-direction: column; gap: 6px; }
+.conn-row > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 6px 2px;
+  font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--border); }
+.conn-row > summary::before { content: "▸"; font-size: 10px; color: var(--muted); transition: transform .12s; }
+.conn-row[open] > summary::before { transform: rotate(90deg); }
+.conn-row-count { font-size: 11px; font-weight: 400; color: var(--muted); background: var(--panel-2); border-radius: 10px; padding: 0 7px; }
+.conn-row > .cards { margin: 10px 0 8px; }

@@ -8,7 +8,8 @@ type SshHost = {
   id: string; name: string; group: string; host: string; port: number; user: string;
   identity_file: string; jump: string; auth: string; keepass_entry: string;
 };
-type ConfigHost = { alias: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string };
+type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string };
+type ConfigHost = { alias: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; effective?: Effective };
 type SshList = { hosts: SshHost[]; config: ConfigHost[] };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
@@ -72,6 +73,8 @@ export function mountSsh(root: HTMLElement) {
   let editing: SshHost | null = null;
   let boundEntry = "";
   let titles = new Map<string, string>();
+  let localUser = "";
+  invoke<string>("ssh_local_user").then((u) => (localUser = u)).catch(() => {});
 
   const sync = () => {
     const a = f("auth").value;
@@ -146,18 +149,27 @@ export function mountSsh(root: HTMLElement) {
             <button class="icon" data-a="edit" title="Изменить">✎</button>
             <button class="icon danger" data-a="del" title="Удалить">×</button>
           </td></tr>`).join("")}</tbody></table></div>`).join("");
-    const cfg = data.config.filter((h) => match(h.alias, h.hostname, h.user));
-    const cfgHtml = cfg.length ? `
-      <div class="mt-group"><div class="side-head small">~/.ssh/config</div>
-      <table class="res mt-table"><tbody>${cfg.map((h) => `
-        <tr data-alias="${esc(h.alias)}">
+    const cfg = data.config.filter((h) => match(h.alias, h.hostname, h.user, h.effective?.hostname ?? "", h.effective?.user ?? ""));
+    // what ssh will really use (`ssh -G`), including Match/Include/wildcard blocks
+    const row = (h: ConfigHost) => {
+      const e = h.effective;
+      const user = e?.user || h.user, host = e?.hostname || h.hostname || h.alias, port = e?.port && e.port !== "22" ? e.port : "";
+      const key = h.identity_file || (e && e.identity_files.length === 1 ? e.identity_files[0] : "");
+      // no User anywhere for this host → ssh logs in as the local user, usually not what was meant
+      const suspicious = !!e && !h.user && !!localUser && e.user === localUser;
+      const warn = suspicious ? `<span class="ssh-warn" title="ssh подключится как «${esc(localUser)}»: для этого хоста не сработал ни один User. Если он задан в блоке «Match Host …» — замените на «Match originalhost …»: Match Host сравнивает уже подставленный HostName (IP), а не алиас.">⚠ пользователь ${esc(localUser)}?</span>` : "";
+      return `<tr data-alias="${esc(h.alias)}">
           <td class="mt-name">${esc(h.alias)}</td>
-          <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.hostname || h.alias)}${h.port ? `<span class="muted">:${esc(h.port)}</span>` : ""}</td>
-          <td class="muted">${h.proxy_jump ? `через ${esc(h.proxy_jump)} · ` : ""}${h.identity_file ? `ключ ${esc(h.identity_file.split("/").pop())}` : ""}</td>
+          <td class="mono">${esc(user ? user + "@" : "")}${esc(host)}${port ? `<span class="muted">:${esc(port)}</span>` : ""}</td>
+          <td class="muted">${warn}${(e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : ""}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect-cfg">Подключиться</button>
             <button class="icon" data-a="copy-cfg" title="Сохранить как профиль OpsDeck (можно привязать пароль из KeePass)">⧉</button>
-          </td></tr>`).join("")}</tbody></table></div>` : "";
+          </td></tr>`;
+    };
+    const cfgHtml = cfg.length ? `
+      <div class="mt-group"><div class="side-head small">~/.ssh/config <span class="muted">— как это видит ssh</span></div>
+      <table class="res mt-table"><tbody>${cfg.map(row).join("")}</tbody></table></div>` : "";
     list.innerHTML = own + cfgHtml || `<p class="muted">Пока пусто — добавьте хост или заведите его в ~/.ssh/config.</p>`;
   }
 

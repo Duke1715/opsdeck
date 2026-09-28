@@ -32,6 +32,18 @@ pub struct AlertsConfig {
     pub poll_seconds: u64,
     pub notify: bool,
     pub notify_resolved: bool,
+    /// "hide such alerts": rules by source + alert name; hidden from the badge and notifications
+    pub muted: Vec<Mute>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct Mute {
+    pub source: String,
+    pub name: String,
+}
+
+fn is_muted(cfg: &AlertsConfig, a: &Alert) -> bool {
+    cfg.muted.iter().any(|m| m.name == a.name && (m.source.is_empty() || m.source == a.source))
 }
 
 impl Default for AlertsConfig {
@@ -43,6 +55,7 @@ impl Default for AlertsConfig {
             poll_seconds: 60,
             notify: true,
             notify_resolved: false,
+            muted: Vec::new(),
         }
     }
 }
@@ -242,7 +255,8 @@ pub fn load_data(state: &AlertsState) {
 }
 
 fn firing_count(d: &Data) -> usize {
-    d.current.values().filter(|a| a.status == "firing" && !a.acked && !a.silenced).count()
+    let cfg = config();
+    d.current.values().filter(|a| a.status == "firing" && !a.acked && !a.silenced && !is_muted(&cfg, a)).count()
 }
 
 /// Applies alerts; returns the ones that are news (newly firing or just resolved).
@@ -283,7 +297,7 @@ fn notify(app: &AppHandle, news: &[Alert]) {
     }
     let shown: Vec<&Alert> = news
         .iter()
-        .filter(|a| !a.silenced && (a.status == "firing" || cfg.notify_resolved))
+        .filter(|a| !a.silenced && !is_muted(&cfg, a) && (a.status == "firing" || cfg.notify_resolved))
         .collect();
     // one notification per alert up to 3, then a summary
     for a in shown.iter().take(3) {
@@ -578,6 +592,21 @@ pub fn alerts_config_get() -> AlertsConfig {
 pub async fn alerts_config_set(app: AppHandle, config: AlertsConfig) -> Result<(), String> {
     store::save_json(CONFIG_FILE, &config)?;
     restart(&app).await
+}
+
+/// Hide (or show again) alerts with this name from this source.
+#[tauri::command]
+pub fn alerts_mute(app: AppHandle, state: State<AlertsState>, source: String, name: String, muted: bool) -> Result<(), String> {
+    let mut cfg = config();
+    let rule = Mute { source, name };
+    cfg.muted.retain(|m| *m != rule);
+    if muted {
+        cfg.muted.push(rule);
+    }
+    store::save_json(CONFIG_FILE, &cfg)?;
+    let count = firing_count(&state.data.lock().unwrap());
+    let _ = app.emit("alerts-changed", count);
+    Ok(())
 }
 
 /// Close an item by hand (AI findings have no natural end): it goes to history as resolved.
