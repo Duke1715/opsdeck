@@ -29,6 +29,11 @@ export function mountConnectors(root: HTMLElement) {
         <button class="icon" data-n="forward" title="Вперёд">→</button>
         <button class="icon" data-n="reload" title="Обновить">↻</button>
         <button class="icon" data-n="home" title="На стартовую страницу">⌂</button>
+        <span class="web-zoom">
+          <button class="icon" data-z="-1" title="Мельче">−</button>
+          <button class="ghost web-zoom-val" data-z="auto" title="Масштаб. Нажмите — вернуть «авто» (подгонка под ширину экрана)">авто</button>
+          <button class="icon" data-z="1" title="Крупнее">+</button>
+        </span>
         <button class="icon" data-n="window" title="Открыть в отдельном окне">⧉</button>
       </span>
     </div>
@@ -355,6 +360,36 @@ export function mountConnectors(root: HTMLElement) {
     nav.hidden = active === "home";
   }
 
+  // ----- zoom: "auto" fits the page to the panel width; a manual value is remembered per panel
+  // and per screen, so a laptop display and a big monitor each keep their own setting
+  const REF_WIDTH = 1600; // panel width (logical px) at which sites are shown at 100 %
+  const STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+  const zoomVal = root.querySelector<HTMLElement>(".web-zoom-val")!;
+  let zooms: Record<string, number> = (() => { try { return JSON.parse(localStorage.getItem("opsdeck.web.zoom") ?? "{}"); } catch { return {}; } })();
+  const screenKey = () => `${screen.width}x${screen.height}@${devicePixelRatio}`;
+  const zoomKey = (id: string) => `${id}|${screenKey()}`;
+  const autoZoom = (w: number) => Math.min(1.25, Math.max(0.67, Math.round((w / REF_WIDTH) * 20) / 20));
+  function zoomFor(id: string, w: number): { z: number; manual: boolean } {
+    const m = zooms[zoomKey(id)];
+    return m ? { z: m, manual: true } : { z: autoZoom(w), manual: false };
+  }
+  function setZoom(dir: "auto" | 1 | -1) {
+    const key = zoomKey(active);
+    if (dir === "auto") delete zooms[key];
+    else {
+      const cur = zoomFor(active, slot.getBoundingClientRect().width).z;
+      const next = dir > 0 ? STEPS.find((s) => s > cur + 0.001) : [...STEPS].reverse().find((s) => s < cur - 0.001);
+      zooms[key] = next ?? cur;
+    }
+    try { localStorage.setItem("opsdeck.web.zoom", JSON.stringify(zooms)); } catch { /* ignore */ }
+    place();
+  }
+  // moving the window to another monitor doesn't always resize it: watch the screen itself
+  let lastScreen = screenKey();
+  setInterval(() => {
+    if (screenKey() !== lastScreen) { lastScreen = screenKey(); place(); }
+  }, 1500);
+
   let placing = false;
   function place() {
     if (placing) return;
@@ -366,7 +401,10 @@ export function mountConnectors(root: HTMLElement) {
       if (r.width < 2 || r.height < 2) return;
       const url = pendingUrl?.id === active ? pendingUrl.url : null;
       pendingUrl = null;
-      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, url })
+      const { z, manual } = zoomFor(active, r.width);
+      zoomVal.textContent = `${manual ? "" : "авто "}${Math.round(z * 100)}%`;
+      zoomVal.classList.toggle("manual", manual);
+      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, url, zoom: z })
         .catch((e) => { toast(String(e), "err"); });
     });
   }
@@ -403,6 +441,8 @@ export function mountConnectors(root: HTMLElement) {
     const tab = t.closest<HTMLElement>("[data-t]");
     if (t.closest(".x") && tab) return closeTab(tab.dataset.t!);
     if (tab) return activate(tab.dataset.t!);
+    const zb = t.closest<HTMLElement>("[data-z]")?.dataset.z;
+    if (zb && active !== "home") return setZoom(zb === "auto" ? "auto" : zb === "1" ? 1 : -1);
     const n = t.closest<HTMLElement>("[data-n]")?.dataset.n;
     if (!n || active === "home") return;
     if (n === "window") {

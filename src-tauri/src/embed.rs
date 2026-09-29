@@ -18,6 +18,25 @@ pub struct Rect {
     h: f64,
 }
 
+/// Zoom last applied per panel: only re-applied when the UI asks for a different value, so that
+/// Ctrl +/− pressed inside the panel is not undone on every re-layout.
+static ZOOM: std::sync::Mutex<Vec<(String, f64)>> = std::sync::Mutex::new(Vec::new());
+
+fn apply_zoom(wv: &tauri::Webview, id: &str, zoom: Option<f64>) -> Result<(), String> {
+    let Some(z) = zoom.map(|z| z.clamp(0.3, 3.0)) else { return Ok(()) };
+    let mut last = ZOOM.lock().unwrap();
+    match last.iter_mut().find(|(i, _)| i == id) {
+        Some((_, v)) if (*v - z).abs() < 0.001 => return Ok(()),
+        Some((_, v)) => *v = z,
+        None => last.push((id.to_string(), z)),
+    }
+    wv.set_zoom(z).map_err(|e| e.to_string())
+}
+
+fn forget_zoom(id: &str) {
+    ZOOM.lock().unwrap().retain(|(i, _)| i != id);
+}
+
 fn label(id: &str) -> String {
     format!("emb-{id}")
 }
@@ -102,7 +121,14 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
 /// `url` (optional) opens a specific page, e.g. a dashboard from an alert; it must be on the
 /// connector's origin so credentials never go to another site.
 #[tauri::command]
-pub async fn web_embed_show(app: AppHandle, kp: State<'_, KeepassState>, id: String, rect: Rect, url: Option<String>) -> Result<(), String> {
+pub async fn web_embed_show(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    id: String,
+    rect: Rect,
+    url: Option<String>,
+    zoom: Option<f64>,
+) -> Result<(), String> {
     let (_, base, script) = connectors::prepare(&kp, &id)?;
     let target = match url {
         Some(u) => {
@@ -118,17 +144,20 @@ pub async fn web_embed_show(app: AppHandle, kp: State<'_, KeepassState>, id: Str
         if let Some(u) = target {
             wv.navigate(u).map_err(|e| e.to_string())?;
         }
+        apply_zoom(&wv, &id, zoom)?;
         return place(&wv, rect);
     }
     let url = target.unwrap_or(base);
     let window = app.get_window("main").ok_or("no main window")?;
-    let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url));
+    let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
     let wv = window
         .add_child(builder, LogicalPosition::new(rect.x, rect.y), LogicalSize::new(rect.w, rect.h))
         .map_err(|e| e.to_string())?;
+    forget_zoom(&id);
+    apply_zoom(&wv, &id, zoom)?;
     place(&wv, rect)
 }
 
@@ -144,6 +173,7 @@ pub fn web_embed_hide(app: AppHandle, id: Option<String>) -> Result<(), String> 
 
 #[tauri::command]
 pub fn web_embed_close(app: AppHandle, id: String) -> Result<(), String> {
+    forget_zoom(&id);
     if let Some(wv) = app.get_webview(&label(&id)) {
         wv.close().map_err(|e| e.to_string())?;
     }

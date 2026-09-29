@@ -168,7 +168,8 @@ pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Re
     let (c, url, script) = prepare(&kp, &id)?;
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title(format!("{} — OpsDeck", c.name))
-        .inner_size(1360.0, 860.0);
+        .inner_size(1360.0, 860.0)
+        .zoom_hotkeys_enabled(true); // Ctrl +/−/0 inside the window
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
