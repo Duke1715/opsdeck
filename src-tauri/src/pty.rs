@@ -242,3 +242,89 @@ pub fn pty_record_stop(state: State<PtyState>, id: String) -> Option<String> {
 pub fn pty_records_open() -> Result<(), String> {
     crate::store::open_with_system(&records_dir()?.to_string_lossy())
 }
+
+/// Names the shell can run (commands in PATH, aliases, functions, builtins, keywords) for
+/// highlighting the command line as it's typed. Asks the user's shell itself (so aliases from
+/// ~/.bashrc / ~/.zshrc count), with a 4 s limit; falls back to scanning PATH.
+#[tauri::command]
+pub async fn shell_commands() -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut names = from_shell().unwrap_or_default();
+        if names.is_empty() {
+            names = path_commands();
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[cfg(unix)]
+fn from_shell() -> Option<Vec<String>> {
+    use std::{io::Read, process::Stdio, time::Duration};
+    let shell = default_shell();
+    let script = if shell.ends_with("zsh") {
+        "print -rl -- ${(k)commands} ${(k)aliases} ${(k)functions} ${(k)builtins} ${(k)reswords}"
+    } else if shell.ends_with("bash") {
+        "compgen -c"
+    } else {
+        return None;
+    };
+    let mut child = std::process::Command::new(&shell)
+        .args(["-ic", script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut out = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let text = reader.join().ok()?;
+    Some(text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+}
+
+#[cfg(not(unix))]
+fn from_shell() -> Option<Vec<String>> {
+    None
+}
+
+fn path_commands() -> Vec<String> {
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT").unwrap_or(".EXE;.CMD;.BAT;.PS1".into()).split(';').map(|e| e.to_lowercase()).collect()
+    } else {
+        Vec::new()
+    };
+    let Some(path) = std::env::var_os("PATH") else { return Vec::new() };
+    std::env::split_paths(&path)
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if cfg!(windows) {
+                let lower = name.to_lowercase();
+                exts.iter().find(|x| lower.ends_with(x.as_str())).map(|x| name[..name.len() - x.len()].to_string())
+            } else {
+                Some(name)
+            }
+        })
+        .collect()
+}

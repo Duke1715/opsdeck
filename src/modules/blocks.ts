@@ -29,7 +29,13 @@ function decodeB64(s: string): string {
 export class ShellBlocks {
   readonly blocks: Block[] = [];
   cwd = "";
+  /** Where the command line starts (OSC 133 B): buffer marker + column. */
+  input: { marker: IMarker; x: number } | null = null;
   onFinished?: (b: Block) => void;
+  /** Extra listeners for finished commands (onFinished belongs to the terminal view). */
+  readonly finished: ((b: Block) => void)[] = [];
+  /** Called on C: the typed command has been submitted. */
+  onSubmit?: () => void;
   private cur: Block | null = null;
 
   constructor(private term: Terminal) {
@@ -43,6 +49,16 @@ export class ShellBlocks {
   /** Command currently running in the foreground (between OSC 133 C and D), if any. */
   get running(): string | null {
     return this.cur?.output && this.cur.exit === undefined ? this.cur.command : null;
+  }
+
+  /** The shell shows its prompt and the user is typing (between B and C). */
+  get atPrompt(): boolean {
+    return !!this.cur && !this.cur.output && !!this.input && !this.input.marker.isDisposed;
+  }
+
+  /** Between A and C: the prompt itself is being drawn or edited (not command output). */
+  get inPrompt(): boolean {
+    return !!this.cur && !this.cur.output;
   }
 
   /** True once the shell has emitted marks, i.e. shell integration is active. */
@@ -60,12 +76,20 @@ export class ShellBlocks {
       case "A": {
         const prompt = this.mark();
         this.cur = prompt ? { prompt, command: "" } : null;
+        this.input = null;
+        break;
+      }
+      case "B": {
+        const marker = this.mark();
+        this.input = marker ? { marker, x: this.term.buffer.active.cursorX } : null;
         break;
       }
       case "E":
         if (this.cur) this.cur.command = decodeB64(rest.join(";")).trim();
         break;
       case "C":
+        this.onSubmit?.();
+        this.input = null;
         if (this.cur) {
           this.cur.output = this.mark();
           this.cur.started = Date.now();
@@ -89,6 +113,7 @@ export class ShellBlocks {
           old.deco?.dispose();
         }
         this.onFinished?.(b);
+        this.finished.forEach((f) => f(b));
         break;
       }
     }

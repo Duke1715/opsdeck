@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
+import { hlPrefs, setHlPrefs } from "./highlight";
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number;
@@ -19,6 +20,11 @@ export function mountSettings(root: HTMLElement) {
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>
           <label>Ключевой файл (необязательно) <input name="keepass_keyfile" spellcheck="false" /></label>
           <label>Автоблокировка, минут без действий (0 — выключить) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
+        </fieldset>
+        <fieldset class="hl-field"><legend>Терминал</legend>
+          <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
+          <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
+          <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
         </fieldset>
         <fieldset><legend>Заметки</legend>
           <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
@@ -50,6 +56,11 @@ export function mountSettings(root: HTMLElement) {
   const form = root.querySelector("form")!;
   mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
   mountUpdates(root.querySelector<HTMLElement>(".upd-root")!);
+  const hlBoxes = root.querySelectorAll<HTMLInputElement>("[data-hl]");
+  const syncHl = () => { const p = hlPrefs(); hlBoxes.forEach((b) => (b.checked = p[b.dataset.hl as "input" | "output"])); };
+  hlBoxes.forEach((b) => (b.onchange = () => setHlPrefs({ [b.dataset.hl!]: b.checked })));
+  window.addEventListener("term-highlight", syncHl);
+  syncHl();
   invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
   root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-log]")?.dataset.log;

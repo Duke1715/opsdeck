@@ -61,6 +61,7 @@ pub fn run() {
             pty::pty_record_start,
             pty::pty_record_stop,
             pty::pty_records_open,
+            pty::shell_commands,
             tools::tool_run,
             tools::tool_stop,
             connectors::connectors_list,

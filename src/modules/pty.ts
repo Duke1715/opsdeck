@@ -3,6 +3,7 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ShellBlocks } from "./blocks";
+import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
 
 let seq = 0;
 
@@ -31,6 +32,13 @@ export class PtyTerminal {
   /** Command blocks (only populated when the shell integration is active). */
   readonly blocks = new ShellBlocks(this.term);
   private fit = new FitAddon();
+  private outHl = new OutputHighlighter(this.term, this.blocks);
+  private inHl = new InputHighlighter(this.term, this.blocks);
+  private hl: HlPrefs = hlPrefs();
+  private onHl = (e: Event) => {
+    this.hl = (e as CustomEvent<HlPrefs>).detail;
+    this.inHl.setEnabled(this.hl.input);
+  };
   private unlisten: UnlistenFn[] = [];
   private ro: ResizeObserver;
   onExit?: () => void;
@@ -39,6 +47,8 @@ export class PtyTerminal {
     const opts = spawn;
     this.term.loadAddon(this.fit);
     this.term.open(host);
+    this.inHl.setEnabled(this.hl.input);
+    window.addEventListener("term-highlight", this.onHl);
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey) return true;
@@ -63,7 +73,7 @@ export class PtyTerminal {
   }
 
   private async start(opts: SpawnOpts) {
-    this.unlisten.push(await listen<string>(`pty-data-${this.id}`, (e) => this.term.write(b64(e.payload))));
+    this.unlisten.push(await listen<string>(`pty-data-${this.id}`, (e) => this.term.write(this.outHl.feed(b64(e.payload), this.hl.output))));
     this.unlisten.push(await listen(`pty-exit-${this.id}`, () => {
       this.term.write("\r\n\x1b[2m[процесс завершён]\x1b[0m\r\n");
       this.onExit?.();
@@ -93,6 +103,7 @@ export class PtyTerminal {
 
   dispose() {
     this.ro.disconnect();
+    window.removeEventListener("term-highlight", this.onHl);
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });
     this.term.dispose();

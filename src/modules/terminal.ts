@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { registerProvider } from "./palette";
+import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { esc, toast } from "./ui";
 
@@ -466,6 +467,8 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
     { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },
     { group: "Терминал", title: "Запись сессии: вкл/выкл", hint: "⏺", run: () => { show(); toggleRec(); } },
+    { group: "Терминал", title: `Подсветка ввода: ${hlPrefs().input ? "выключить" : "включить"}`, hint: "цвета команды при наборе", run: () => setHlPrefs({ input: !hlPrefs().input }) },
+    { group: "Терминал", title: `Подсветка вывода: ${hlPrefs().output ? "выключить" : "включить"}`, hint: "ERROR/WARN, статусы, IP, ссылки", run: () => setHlPrefs({ output: !hlPrefs().output }) },
     { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
       group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },
