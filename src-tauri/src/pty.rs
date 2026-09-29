@@ -14,6 +14,30 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    recorder: Recorder,
+}
+
+/// Session log shared with the reader thread; `None` while not recording.
+type Recorder = std::sync::Arc<Mutex<Option<Recording>>>;
+
+struct Recording {
+    file: std::io::BufWriter<std::fs::File>,
+    path: std::path::PathBuf,
+}
+
+impl Recording {
+    /// Terminal output → readable text: escape sequences removed, CRLF → LF, bare CR dropped.
+    fn write(&mut self, bytes: &[u8]) {
+        let plain = strip_ansi_escapes::strip(bytes);
+        let text: Vec<u8> = plain.into_iter().filter(|&b| b != b'\r' && (b >= 0x20 || b == b'\n' || b == b'\t')).collect();
+        let _ = self.file.write_all(&text);
+        let _ = self.file.flush();
+    }
+    fn finish(mut self) -> std::path::PathBuf {
+        let _ = writeln!(self.file, "\n# --- запись остановлена {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+        let _ = self.file.flush();
+        self.path
+    }
 }
 
 #[derive(Default)]
@@ -51,6 +75,11 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         // best effort: without integration the tab still works, just without command blocks
         let _ = shell_integration(&program, &mut cmd);
     }
+    let is_ssh = std::path::Path::new(&program).file_stem().is_some_and(|n| n == "ssh");
+    if is_ssh {
+        // lets the resource bar reuse this session's connection (see sysmon.rs)
+        cmd.args(crate::sysmon::ssh_master_opts());
+    }
     cmd.args(req.args.unwrap_or_default());
     let cwd = req.cwd.map(Into::into).or_else(dirs::home_dir);
     if let Some(cwd) = cwd {
@@ -78,6 +107,8 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     let writer = pair.master.take_writer().map_err(err)?;
 
     let id = req.id.clone();
+    let recorder: Recorder = Default::default();
+    let rec = recorder.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 16384];
         loop {
@@ -86,8 +117,14 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
                 // base64 keeps multi-byte UTF-8 sequences split across reads intact
                 Ok(n) => {
                     let _ = app.emit(&format!("pty-data-{id}"), STANDARD.encode(&buf[..n]));
+                    if let Some(r) = rec.lock().unwrap().as_mut() {
+                        r.write(&buf[..n]);
+                    }
                 }
             }
+        }
+        if let Some(r) = rec.lock().unwrap().take() {
+            let _ = app.emit(&format!("pty-record-{id}"), r.finish().to_string_lossy().into_owned());
         }
         let _ = app.emit(&format!("pty-exit-{id}"), ());
     });
@@ -96,7 +133,7 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .sessions
         .lock()
         .unwrap()
-        .insert(req.id, Session { master: pair.master, writer, child });
+        .insert(req.id, Session { master: pair.master, writer, child, recorder });
     Ok(())
 }
 
@@ -136,6 +173,9 @@ fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), Stri
         _ => return Ok(()),
     }
     cmd.env("OPSDECK_SHELL_INTEGRATION", "1");
+    if let Some(cp) = crate::sysmon::control_path() {
+        cmd.env("OPSDECK_SSH_CP", cp); // used by the ssh() wrapper in the shell integration
+    }
     Ok(())
 }
 
@@ -161,4 +201,44 @@ pub fn pty_kill(state: State<PtyState>, id: String) -> Result<(), String> {
         let _ = s.child.kill();
     }
     Ok(())
+}
+
+fn records_dir() -> Result<std::path::PathBuf, String> {
+    let base = dirs::document_dir().or_else(dirs::home_dir).ok_or("no home dir")?;
+    let dir = base.join("OpsDeck").join("sessions");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir)
+}
+
+/// Start writing this terminal's output to a text file; returns its path.
+#[tauri::command]
+pub fn pty_record_start(state: State<PtyState>, id: String, title: String) -> Result<String, String> {
+    let sessions = state.sessions.lock().unwrap();
+    let s = sessions.get(&id).ok_or("no such pty")?;
+    let mut rec = s.recorder.lock().unwrap();
+    if let Some(r) = rec.as_ref() {
+        return Ok(r.path.to_string_lossy().into_owned());
+    }
+    let now = chrono::Local::now();
+    let safe: String = title.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).take(40).collect();
+    let path = records_dir()?.join(format!("{}_{}.log", now.format("%Y-%m-%d_%H-%M-%S"), safe.trim_matches('_')));
+    let file = std::fs::File::create(&path).map_err(err)?;
+    crate::store::restrict(&path, 0o600)?;
+    let mut file = std::io::BufWriter::new(file);
+    let _ = writeln!(file, "# OpsDeck — запись терминала «{title}», начата {}\n", now.format("%Y-%m-%d %H:%M:%S"));
+    *rec = Some(Recording { file, path: path.clone() });
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Stop recording; returns the log path (None if it wasn't recording).
+#[tauri::command]
+pub fn pty_record_stop(state: State<PtyState>, id: String) -> Option<String> {
+    let sessions = state.sessions.lock().unwrap();
+    let r = sessions.get(&id)?.recorder.lock().unwrap().take()?;
+    Some(r.finish().to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn pty_records_open() -> Result<(), String> {
+    crate::store::open_with_system(&records_dir()?.to_string_lossy())
 }

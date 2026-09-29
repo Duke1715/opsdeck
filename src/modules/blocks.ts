@@ -40,6 +40,11 @@ export class ShellBlocks {
     });
   }
 
+  /** Command currently running in the foreground (between OSC 133 C and D), if any. */
+  get running(): string | null {
+    return this.cur?.output && this.cur.exit === undefined ? this.cur.command : null;
+  }
+
   /** True once the shell has emitted marks, i.e. shell integration is active. */
   get active() {
     return this.blocks.length > 0 || this.cur !== null;

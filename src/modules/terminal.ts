@@ -5,12 +5,12 @@ import { PtyTerminal, SpawnOpts } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { registerProvider } from "./palette";
 import { addSnippet } from "./snippets";
-import { toast } from "./ui";
+import { esc, toast } from "./ui";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
-type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean };
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string };
 type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
 const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
@@ -52,6 +52,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">＋</button>
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">◫</button>
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">⊟</button>
+        <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">⏺</button>
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
         ${helpBtn("terminal")}
@@ -60,6 +61,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
       </div>
       <div class="term-hosts"></div>
+      <div class="sysbar" title="Ресурсы машины, на которой вы работаете: этой или удалённой в активной SSH-вкладке"></div>
     </div>
     <div class="splitter" hidden></div>
     <aside class="ai-panel" hidden>
@@ -85,10 +87,37 @@ export function mountTerminal(root: HTMLElement) {
   const activePane = () => activeTab?.active ?? null;
   const cwd = () => activePane()?.pty.blocks.cwd || undefined;
 
+  // ----- session recording -----
+
+  function syncRec() {
+    const p = activePane();
+    const btn = $("[data-act=rec]");
+    btn.classList.toggle("on", !!p?.recording);
+    btn.title = p?.recording ? `Идёт запись в ${p.recording} — нажмите, чтобы остановить` : "Записывать эту панель в файл (вкл/выкл)";
+    for (const t of tabs) t.btn.classList.toggle("rec", t.panes.some((x) => x.recording));
+  }
+
+  async function toggleRec() {
+    const p = activePane();
+    if (!p) return;
+    try {
+      if (p.recording) {
+        const path = await invoke<string | null>("pty_record_stop", { id: p.pty.id });
+        p.recording = undefined;
+        if (path) toast(`Запись сохранена: ${path}`);
+      } else {
+        p.recording = await invoke<string>("pty_record_start", { id: p.pty.id, title: p.tab.label.textContent || "terminal" });
+        toast(`Запись идёт: ${p.recording}`);
+      }
+    } catch (e) { toast(String(e), "err"); }
+    syncRec();
+  }
+
   function focusPane(p: Pane) {
     p.tab.active = p;
     p.tab.panes.forEach((x) => x.el.classList.toggle("focused", x === p && p.tab.panes.length > 1));
     terminalApi.active = p.pty;
+    syncRec();
   }
 
   function activate(t: Tab) {
@@ -126,6 +155,12 @@ export function mountTerminal(root: HTMLElement) {
     pty.term.onTitleChange((t) => { if (tab.active === pane && t) tab.label.textContent = t; });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
     pty.onExit = () => { if (!pane.keepOpen) closePane(pane); };
+    listen<string>(`pty-record-${pty.id}`, (e) => {
+      if (!pane.recording) return;
+      pane.recording = undefined;
+      toast(`Сессия завершилась, запись сохранена: ${e.payload}`);
+      syncRec();
+    });
     wireBlocks(pane);
     focusPane(pane);
     requestAnimationFrame(() => { tab.panes.forEach((p) => p.pty.resize()); pty.term.focus(); });
@@ -308,6 +343,75 @@ export function mountTerminal(root: HTMLElement) {
   });
   aiPanel.style.width = load("opsdeck.ai.width", "520px");
 
+  // ----- resource bar: this machine, or the remote host of the active SSH session -----
+
+  type Stats = {
+    host: string; remote: boolean; cpu: number | null; cores: number; load: number[] | null;
+    mem_used: number; mem_total: number; swap_used: number; swap_total: number;
+    disk_mount: string; disk_used: number; disk_total: number; uptime: number;
+  };
+  const sysbar = $(".sysbar");
+  const gb = (b: number) => (b >= 1e12 ? `${(b / 1e12).toFixed(1)} TB` : `${(b / 1e9).toFixed(1)} GB`);
+  const lvl = (pct: number) => (pct >= 90 ? "bad" : pct >= 75 ? "warn" : "");
+  const upt = (s: number) => (s >= 86400 ? `${Math.floor(s / 86400)}д ${Math.floor((s % 86400) / 3600)}ч` : `${Math.floor(s / 3600)}ч ${Math.floor((s % 3600) / 60)}м`);
+
+  /** ssh destination + safe options of the active pane, if it is in an interactive SSH session. */
+  const SSH_VALUE_OPTS = new Set(["-p", "-l", "-i", "-J", "-o", "-F", "-E", "-c", "-m", "-b", "-L", "-R", "-D", "-W", "-S", "-O", "-Q", "-w", "-e", "-B", "-I"]);
+  function sshTarget(p: Pane | null): string[] | null {
+    if (!p) return null;
+    const tokens = p.pty.spawn.program === "ssh" ? [...(p.pty.spawn.args ?? [])]
+      : (p.pty.blocks.running ?? "").trim().split(/\s+/).filter(Boolean);
+    if (p.pty.spawn.program !== "ssh") {
+      if (tokens[0] !== "ssh") return null;
+      tokens.shift();
+    }
+    const keep: string[] = [];
+    let dest: string | null = null;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (dest) return null; // a remote command follows: not an interactive session
+      if (SSH_VALUE_OPTS.has(t)) {
+        const v = tokens[++i];
+        if (["-p", "-l", "-i", "-J"].includes(t) && v) keep.push(t, v);
+      } else if (t.startsWith("-")) continue;
+      else dest = t;
+    }
+    return dest ? [...keep, dest] : null;
+  }
+
+  let sysBusy = false;
+  let lastRemoteKey = "";
+  async function updateSysbar() {
+    if (sysBusy || root.hidden || document.hidden) return;
+    sysBusy = true;
+    const target = sshTarget(activePane());
+    const key = target?.join(" ") ?? "";
+    try {
+      const s = target ? await invoke<Stats>("sys_remote", { args: target }) : await invoke<Stats>("sys_local");
+      const mem = s.mem_total ? (100 * s.mem_used) / s.mem_total : 0;
+      const disk = s.disk_total ? (100 * s.disk_used) / s.disk_total : 0;
+      const loadPct = s.load && s.cores ? (100 * s.load[0]) / s.cores : 0;
+      sysbar.innerHTML = `
+        <span class="sb-host ${s.remote ? "remote" : ""}" title="${s.remote ? "Удалённая машина (активная SSH-вкладка)" : "Эта машина"}">${s.remote ? "🌐" : "🖥"} ${esc(s.host)}</span>
+        ${s.cpu !== null ? `<span class="${lvl(s.cpu)}">CPU <b>${s.cpu.toFixed(0)}%</b><i class="sb-bar"><i style="width:${Math.min(100, s.cpu)}%"></i></i></span>` : `<span class="muted">CPU …</span>`}
+        ${s.load ? `<span class="${lvl(loadPct)}" title="load average 1/5/15 мин, ядер: ${s.cores}">load <b>${s.load.map((x) => x.toFixed(2)).join(" ")}</b> <span class="muted">/${s.cores}</span></span>` : ""}
+        <span class="${lvl(mem)}">RAM <b>${gb(s.mem_used)}</b> / ${gb(s.mem_total)} <span class="muted">${mem.toFixed(0)}%</span></span>
+        ${s.swap_used > 0 ? `<span class="${lvl(s.swap_total ? (100 * s.swap_used) / s.swap_total : 0)}">swap <b>${gb(s.swap_used)}</b></span>` : ""}
+        ${s.disk_total ? `<span class="${lvl(disk)}">${esc(s.disk_mount || "/")} <b>${gb(s.disk_used)}</b> / ${gb(s.disk_total)} <span class="muted">${disk.toFixed(0)}%</span></span>` : ""}
+        <span class="muted">up ${upt(s.uptime)}</span>`;
+      lastRemoteKey = key;
+    } catch (e) {
+      if (target) {
+        sysbar.innerHTML = `<span class="sb-host remote">🌐 ${esc(target[target.length - 1])}</span><span class="muted">${esc(String(e))}</span>`;
+        lastRemoteKey = key;
+      }
+    } finally {
+      sysBusy = false;
+    }
+  }
+  setInterval(updateSysbar, 2500);
+  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "terminal") updateSysbar(); });
+
   // ----- IDE bridge status -----
 
   const ideEl = $(".ide-status");
@@ -324,6 +428,7 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=new]").onclick = () => newTab();
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
+  $("[data-act=rec]").onclick = toggleRec;
   $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
   $("[data-act=ai]").onclick = () => toggleAi();
   $("[data-act=send]").onclick = sendSelection;
@@ -360,6 +465,8 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Разделить вправо", hint: "Ctrl+Shift+D", run: () => { show(); split("row"); } },
     { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
     { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },
+    { group: "Терминал", title: "Запись сессии: вкл/выкл", hint: "⏺", run: () => { show(); toggleRec(); } },
+    { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
       group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },
     })),

@@ -11,7 +11,9 @@ mod notes;
 mod settings;
 mod snippets;
 mod ssh;
+mod sysmon;
 mod store;
+mod ports;
 mod pty;
 mod tools;
 mod updater;
@@ -27,6 +29,7 @@ pub fn run() {
         .manage(keepass::KeepassState::default())
         .manage(ide::IdeState::default())
         .manage(alerts::AlertsState::default())
+        .manage(sysmon::SysState::default())
         .setup(|app| {
             keepass::spawn_autolock(app.handle().clone());
             ide::start(app.handle().clone());
@@ -46,6 +49,9 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_record_start,
+            pty::pty_record_stop,
+            pty::pty_records_open,
             tools::tool_run,
             tools::tool_stop,
             connectors::connectors_list,
@@ -128,6 +134,10 @@ pub fn run() {
             ssh::ssh_delete,
             ssh::ssh_connect,
             ssh::ssh_local_user,
+            sysmon::sys_local,
+            sysmon::sys_remote,
+            ports::ports_scan,
+            ports::ports_listening,
             snippets::snippets_save,
             ide::ide_selection,
             ide::ide_editor,

@@ -514,3 +514,29 @@ kbd { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); bord
 .conn-row[open] > summary::before { transform: rotate(90deg); }
 .conn-row-count { font-size: 11px; font-weight: 400; color: var(--muted); background: var(--panel-2); border-radius: 10px; padding: 0 7px; }
 .conn-row > .cards { margin: 10px 0 8px; }
+
+/* terminal resource bar */
+.sysbar { flex: none; display: flex; align-items: center; gap: 16px; height: 26px; padding: 0 12px; overflow: hidden;
+  white-space: nowrap; font-size: 12px; color: var(--text); background: var(--panel); border-top: 1px solid var(--border); }
+.sysbar b { font-weight: 600; }
+.sysbar .warn, .sysbar .warn b { color: #e6c07b; }
+.sysbar .bad, .sysbar .bad b { color: var(--danger); }
+.sb-host { font-weight: 600; color: var(--accent); }
+.sb-host.remote { color: #c678dd; }
+.sb-bar { display: inline-block; width: 42px; height: 6px; margin-left: 6px; vertical-align: middle; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.sb-bar > i { display: block; height: 100%; background: currentColor; opacity: .8; }
+
+/* network: ports */
+.net-pane { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.net-pane[data-pane=tools] .output { min-height: 200px; }
+.ports-form .pspec { width: 320px; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.ports-table td.wrap { white-space: normal; }
+.listen-head { margin-top: 12px; }
+.listen-head h3 { margin: 0; font-size: 15px; }
+.lfilter { width: 220px; }
+p.small { font-size: 12px; margin: 0; }
+
+/* terminal recording */
+.rec-btn.on { color: var(--danger); animation: rec-blink 1.4s ease-in-out infinite; }
+@keyframes rec-blink { 50% { opacity: .35; } }
+.tab.rec .label::before { content: "● "; color: var(--danger); }

@@ -35,7 +35,8 @@ export class PtyTerminal {
   private ro: ResizeObserver;
   onExit?: () => void;
 
-  constructor(readonly host: HTMLElement, opts: SpawnOpts = {}) {
+  constructor(readonly host: HTMLElement, readonly spawn: SpawnOpts = {}) {
+    const opts = spawn;
     this.term.loadAddon(this.fit);
     this.term.open(host);
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
