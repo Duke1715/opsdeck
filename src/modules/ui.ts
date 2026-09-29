@@ -42,7 +42,13 @@ export function overlay(open: boolean) {
   window.dispatchEvent(new Event(open ? "overlay-open" : "overlay-close"));
 }
 
+/** Write to the app log file (errors shown to the user, uncaught exceptions). */
+export function logUi(level: "error" | "warn" | "info", message: string) {
+  import("@tauri-apps/api/core").then(({ invoke }) => invoke("log_ui", { level, message }).catch(() => {}));
+}
+
 export function toast(text: string, kind: "ok" | "err" = "ok") {
+  if (kind === "err") logUi("error", text);
   const el = document.createElement("div");
   el.className = `toast ${kind}`;
   el.textContent = text;

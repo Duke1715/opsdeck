@@ -540,3 +540,6 @@ p.small { font-size: 12px; margin: 0; }
 .rec-btn.on { color: var(--danger); animation: rec-blink 1.4s ease-in-out infinite; }
 @keyframes rec-blink { 50% { opacity: .35; } }
 .tab.rec .label::before { content: "● "; color: var(--danger); }
+.log-view { margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; font: 11.5px/1.5 "JetBrains Mono", monospace; white-space: pre-wrap; word-break: break-all; }
+.log-field code { font-size: 11.5px; }

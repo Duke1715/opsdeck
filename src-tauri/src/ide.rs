@@ -79,12 +79,15 @@ pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let listener = match TcpListener::bind("127.0.0.1:0").await {
             Ok(l) => l,
-            Err(e) => return eprintln!("ide bridge: {e}"),
+            Err(e) => {
+                log::error!("ide bridge: {e}");
+                return;
+            }
         };
         let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
         let _ = PORT.set(port);
         if let Err(e) = write_lock(&app, port) {
-            eprintln!("ide bridge lock file: {e}");
+            log::warn!("ide bridge lock file: {e}");
         }
         while let Ok((stream, _)) = listener.accept().await {
             let app = app.clone();

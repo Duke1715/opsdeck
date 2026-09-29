@@ -80,7 +80,7 @@ pub fn install(app: &AppHandle) {
             .and_then(|w| w.default_vbox().map_err(|e| e.to_string()))
             .and_then(|vbox| gtk_layer::install(&vbox));
         if let Err(e) = res {
-            eprintln!("embedded web panels unavailable: {e}");
+            log::warn!("embedded web panels unavailable: {e}");
         }
     }
     #[cfg(not(target_os = "linux"))]

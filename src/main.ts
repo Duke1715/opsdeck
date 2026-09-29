@@ -11,6 +11,11 @@ import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
+import { logUi } from "./modules/ui";
+
+// anything that blows up in the UI ends up in the log file (⚙ → Журнал)
+window.addEventListener("error", (e) => logUi("error", `JS: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}${e.error?.stack ? "\n" + e.error.stack : ""}`));
+window.addEventListener("unhandledrejection", (e) => logUi("error", `Promise: ${e.reason?.stack ?? e.reason}`));
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { registerProvider } from "./modules/palette";

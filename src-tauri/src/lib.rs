@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod alerts;
 mod connectors;
+mod diag;
 mod embed;
 mod ide;
 mod k8s;
@@ -20,6 +21,7 @@ mod updater;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(diag::log_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -31,6 +33,9 @@ pub fn run() {
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
         .setup(|app| {
+            diag::install_panic_hook();
+            diag::start_watchdog(app.handle().clone());
+            log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
@@ -38,17 +43,21 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = alerts::restart(&handle).await {
-                    eprintln!("alerts: {e}");
+                    log::error!("alerts: {e}");
                     let _ = tauri::Emitter::emit(&handle, "alerts-error", e);
                 }
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(diag::track(tauri::generate_handler![
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            diag::log_ui,
+            diag::logs_open,
+            diag::logs_tail,
+            diag::logs_path,
             pty::pty_record_start,
             pty::pty_record_stop,
             pty::pty_records_open,
@@ -143,7 +152,7 @@ pub fn run() {
             ide::ide_editor,
             ide::ide_at_mention,
             ide::ide_status,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building OpsDeck")
         .run(|app, event| {

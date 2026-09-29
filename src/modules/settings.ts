@@ -38,6 +38,11 @@ export function mountSettings(root: HTMLElement) {
         <datalist id="dl-kp"></datalist><datalist id="dl-ob"></datalist><datalist id="dl-wb"></datalist>
         <div class="row"><button class="primary" type="submit">Сохранить</button><span class="muted detect-state"></span></div>
       </form>
+      <fieldset class="log-field"><legend>Журнал</legend>
+        <p class="muted hint">Ошибки, зависания интерфейса (с командой, которая в этот момент выполнялась), падения и медленные операции пишутся в файл: <code class="log-path">…</code></p>
+        <div class="row"><button type="button" class="ghost" data-log="problems">Показать ошибки и зависания</button><button type="button" class="ghost" data-log="all">Весь журнал (хвост)</button><button type="button" class="ghost" data-log="open">Открыть папку</button></div>
+        <pre class="log-view" hidden></pre>
+      </fieldset>
       <fieldset class="sn-field"><legend>Сниппеты</legend><div class="sn-root"></div></fieldset>
       <p class="muted">Конфиги: ~/.config/opsdeck/ · пароли коннекторов и роутеров — в системном keyring.</p>
     </div>`;
@@ -45,6 +50,18 @@ export function mountSettings(root: HTMLElement) {
   const form = root.querySelector("form")!;
   mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
   mountUpdates(root.querySelector<HTMLElement>(".upd-root")!);
+  invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
+  root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-log]")?.dataset.log;
+    if (!act) return;
+    if (act === "open") return void invoke("logs_open").catch((err) => toast(String(err), "err"));
+    const view = root.querySelector<HTMLElement>(".log-view")!;
+    view.hidden = false;
+    view.textContent = "загрузка…";
+    const text = await invoke<string>("logs_tail", { lines: 300, onlyProblems: act === "problems" }).catch((err) => String(err));
+    view.textContent = text || (act === "problems" ? "Проблем не записано ✓" : "Журнал пуст");
+    view.scrollTop = view.scrollHeight;
+  });
   const f = (n: keyof Settings) => form.elements.namedItem(n) as HTMLInputElement;
 
   async function load() {

@@ -198,7 +198,7 @@ pub fn kp_entries(state: State<KeepassState>, query: Option<String>) -> Result<V
 
 /// field: username | password | url | notes
 #[tauri::command]
-pub fn kp_copy(app: AppHandle, state: State<KeepassState>, id: String, field: String) -> Result<(), String> {
+pub async fn kp_copy(app: AppHandle, state: State<'_, KeepassState>, id: String, field: String) -> Result<(), String> {
     let key = match field.as_str() {
         "username" => "UserName",
         "password" => "Password",
@@ -262,11 +262,13 @@ pub fn spawn_autolock(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn clip_write(app: AppHandle, text: String) -> Result<(), String> {
+pub async fn clip_write(app: AppHandle, text: String) -> Result<(), String> {
     app.clipboard().write_text(text).map_err(err)
 }
 
 #[tauri::command]
-pub fn clip_read(app: AppHandle) -> String {
+// async = not on the UI thread: reading a selection that OpsDeck itself owns from the UI thread
+// blocks it until the clipboard request times out ("application not responding")
+pub async fn clip_read(app: AppHandle) -> String {
     app.clipboard().read_text().unwrap_or_default()
 }
