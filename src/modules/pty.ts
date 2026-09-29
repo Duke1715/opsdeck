@@ -43,11 +43,15 @@ export class PtyTerminal {
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey) return true;
       const k = e.key.toUpperCase();
+      // preventDefault: otherwise WebKit also runs its own copy/paste for the same keys
+      // and the text lands in the terminal twice
       if (k === "C" && this.term.hasSelection()) {
+        e.preventDefault();
         invoke("clip_write", { text: this.term.getSelection() });
         return false;
       }
       if (k === "V") {
+        e.preventDefault();
         invoke<string>("clip_read").then((t) => t && this.term.paste(t));
         return false;
       }
