@@ -8,10 +8,12 @@ use crate::{
     tools::valid_host,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 use tauri::{AppHandle, State};
 
 const FILE: &str = "ssh.json";
+/// Groups for ~/.ssh/config hosts (alias → group): OpsDeck never writes to the ssh config itself.
+const GROUPS_FILE: &str = "ssh_groups.json";
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SshHost {
@@ -47,6 +49,8 @@ pub struct ConfigHost {
     /// effective values as ssh resolves them (`ssh -G alias`): user, hostname, port, identity
     effective: Option<Effective>,
     alias: String,
+    /// from ssh_groups.json, else from a `# group: …` comment right above the Host line
+    group: String,
     hostname: String,
     user: String,
     port: String,
@@ -77,9 +81,17 @@ fn parse_config() -> Vec<ConfigHost> {
     let Ok(raw) = std::fs::read_to_string(ssh_dir().join("config")) else { return Vec::new() };
     let mut out: Vec<ConfigHost> = Vec::new();
     let mut current: Vec<usize> = Vec::new();
+    let mut comment_group = String::new();
     for line in raw.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if let Some(c) = line.strip_prefix('#') {
+            let c = c.trim();
+            if let Some(g) = c.strip_prefix("group:").or_else(|| c.strip_prefix("Group:")) {
+                comment_group = g.trim().to_string();
+            }
+            continue;
+        }
+        if line.is_empty() {
             continue;
         }
         let (key, value) = match line.split_once(|c: char| c.is_whitespace() || c == '=') {
@@ -91,10 +103,14 @@ fn parse_config() -> Vec<ConfigHost> {
                 current.clear();
                 for alias in value.split_whitespace().filter(|a| !a.contains(['*', '?', '!'])) {
                     current.push(out.len());
-                    out.push(ConfigHost { alias: alias.into(), ..Default::default() });
+                    out.push(ConfigHost { alias: alias.into(), group: comment_group.clone(), ..Default::default() });
                 }
+                comment_group.clear();
             }
-            "match" => current.clear(),
+            "match" => {
+                current.clear();
+                comment_group.clear();
+            }
             _ => {
                 for &i in &current {
                     let h = &mut out[i];
@@ -150,10 +166,14 @@ fn effective(alias: &str) -> Option<Effective> {
 #[tauri::command]
 pub async fn ssh_list() -> Result<SshList, String> {
     let hosts = load()?;
-    let config = tauri::async_runtime::spawn_blocking(|| {
+    let groups: HashMap<String, String> = store::load_json(GROUPS_FILE)?;
+    let config = tauri::async_runtime::spawn_blocking(move || {
         let mut list = parse_config();
         for h in &mut list {
             h.effective = effective(&h.alias);
+            if let Some(g) = groups.get(&h.alias) {
+                h.group = g.clone();
+            }
         }
         list
     })
@@ -231,6 +251,42 @@ pub fn ssh_save(host: SshHost, secret: Option<String>) -> Result<(), String> {
         None => list.push(host),
     }
     store::save_json(FILE, &list)
+}
+
+/// Put a ~/.ssh/config host into a group (empty = back to the comment / ungrouped).
+#[tauri::command]
+pub fn ssh_config_group(alias: String, group: String) -> Result<(), String> {
+    let mut groups: HashMap<String, String> = store::load_json(GROUPS_FILE)?;
+    let group = group.trim().to_string();
+    if group.is_empty() {
+        groups.remove(&alias);
+    } else {
+        groups.insert(alias, group);
+    }
+    store::save_json(GROUPS_FILE, &groups)
+}
+
+/// Rename a group everywhere: own profiles and ~/.ssh/config assignments. Hosts grouped only by a
+/// `# group:` comment keep it (the ssh config is not edited); they get an override instead.
+#[tauri::command]
+pub fn ssh_group_rename(from: String, to: String) -> Result<(), String> {
+    let to = to.trim().to_string();
+    let mut list = load()?;
+    for h in list.iter_mut().filter(|h| h.group == from) {
+        h.group = to.clone();
+    }
+    store::save_json(FILE, &list)?;
+    let mut groups: HashMap<String, String> = store::load_json(GROUPS_FILE)?;
+    let hits: Vec<String> = parse_config()
+        .into_iter()
+        .filter(|h| groups.get(&h.alias).unwrap_or(&h.group) == &from)
+        .map(|h| h.alias)
+        .collect();
+    for alias in hits {
+        groups.insert(alias, to.clone());
+    }
+    groups.retain(|_, g| !g.is_empty());
+    store::save_json(GROUPS_FILE, &groups)
 }
 
 #[tauri::command]

@@ -9,7 +9,7 @@ type SshHost = {
   identity_file: string; jump: string; auth: string; keepass_entry: string;
 };
 type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string };
-type ConfigHost = { alias: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; effective?: Effective };
+type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; effective?: Effective };
 type SshList = { hosts: SshHost[]; config: ConfigHost[] };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
@@ -26,8 +26,8 @@ async function connect(title: string, target: { id?: string; alias?: string }) {
 registerProvider(async () => {
   const l = await invoke<SshList>("ssh_list");
   return [
-    ...l.hosts.map((h) => ({ group: "SSH", title: `SSH: ${h.name}`, hint: `${h.user ? h.user + "@" : ""}${h.host}`, run: () => connect(`ssh ${h.name}`, { id: h.id }) })),
-    ...l.config.map((h) => ({ group: "SSH", title: `SSH: ${h.alias}`, hint: `~/.ssh/config${h.hostname ? " · " + h.hostname : ""}`, run: () => connect(`ssh ${h.alias}`, { alias: h.alias }) })),
+    ...l.hosts.map((h) => ({ group: "SSH", title: `SSH: ${h.name}`, hint: `${h.group ? h.group + " · " : ""}${h.user ? h.user + "@" : ""}${h.host}`, run: () => connect(`ssh ${h.name}`, { id: h.id }) })),
+    ...l.config.map((h) => ({ group: "SSH", title: `SSH: ${h.alias}`, hint: `${h.group ? h.group + " · " : ""}~/.ssh/config${h.hostname ? " · " + h.hostname : ""}`, run: () => connect(`ssh ${h.alias}`, { alias: h.alias }) })),
   ];
 });
 
@@ -45,7 +45,7 @@ export function mountSsh(root: HTMLElement) {
           <h3>SSH-хост</h3>
           <div class="grid2">
             <label>Название <input name="name" required placeholder="prod-db-1" /></label>
-            <label>Группа <input name="group" placeholder="prod / стенд" /></label>
+            <label>Группа <input name="group" list="ssh-groups" placeholder="prod / стенд" /></label>
             <label>Адрес <input name="host" required placeholder="10.0.0.5 или host.example.com" spellcheck="false" /></label>
             <div class="grid2">
               <label>Порт <input name="port" type="number" min="1" max="65535" value="22" /></label>
@@ -57,7 +57,7 @@ export function mountSsh(root: HTMLElement) {
           <label>Аутентификация <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
-          <datalist id="ssh-keys"></datalist>
+          <datalist id="ssh-keys"></datalist><datalist id="ssh-groups"></datalist>
           <p class="err form-err"></p>
           <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="save" class="primary">Сохранить</button></div>
         </form>
@@ -102,6 +102,7 @@ export function mountSsh(root: HTMLElement) {
     f("auth").value = h?.auth ?? "key";
     setBound(h?.keepass_entry ?? "");
     sync();
+    form.querySelector("#ssh-groups")!.innerHTML = allGroups().map((g) => `<option value="${esc(g)}">`).join("");
     const keys = await invoke<string[]>("ssh_keys").catch(() => []);
     form.querySelector("#ssh-keys")!.innerHTML = keys.map((k) => `<option value="${esc(k)}">`).join("");
     dialog.showModal();
@@ -131,50 +132,80 @@ export function mountSsh(root: HTMLElement) {
     draw();
   }
 
-  function draw() {
-    const q = filter.value.trim().toLowerCase();
-    const match = (...xs: string[]) => !q || xs.join(" ").toLowerCase().includes(q);
-    const groups = new Map<string, SshHost[]>();
-    for (const h of data.hosts.filter((h) => match(h.name, h.host, h.group, h.user)).sort((a, b) => a.name.localeCompare(b.name)))
-      groups.set(h.group, [...(groups.get(h.group) ?? []), h]);
-    const own = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, hs]) => `
-      <div class="mt-group">${g ? `<div class="side-head small">${esc(g)}</div>` : ""}
-      <table class="res mt-table"><tbody>${hs.map((h) => `
+  // collapsed groups survive restarts (per viewer, like the web panel rows)
+  const closed = new Set<string>((() => { try { return JSON.parse(localStorage.getItem("opsdeck.ssh.closed") ?? "[]"); } catch { return []; } })());
+  const saveClosed = () => { try { localStorage.setItem("opsdeck.ssh.closed", JSON.stringify([...closed])); } catch { /* ignore */ } };
+  const CFG = "~/.ssh/config";
+  const allGroups = () => [...new Set([...data.hosts.map((h) => h.group), ...data.config.map((h) => h.group)].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+  const ownRow = (h: SshHost) => `
         <tr data-id="${esc(h.id)}">
           <td class="mt-name">${esc(h.name)}</td>
           <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.host)}${h.port !== 22 ? `<span class="muted">:${h.port}</span>` : ""}</td>
           <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `🔑 ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : esc(AUTH[h.auth] ?? "")}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect">Подключиться</button>
-            <button class="icon" data-a="edit" title="Изменить">✎</button>
-            <button class="icon danger" data-a="del" title="Удалить">×</button>
-          </td></tr>`).join("")}</tbody></table></div>`).join("");
-    const cfg = data.config.filter((h) => match(h.alias, h.hostname, h.user, h.effective?.hostname ?? "", h.effective?.user ?? ""));
-    // what ssh will really use (`ssh -G`), including Match/Include/wildcard blocks
-    const row = (h: ConfigHost) => {
-      const e = h.effective;
-      const user = e?.user || h.user, host = e?.hostname || h.hostname || h.alias, port = e?.port && e.port !== "22" ? e.port : "";
-      const key = h.identity_file || (e && e.identity_files.length === 1 ? e.identity_files[0] : "");
-      // no User anywhere for this host → ssh logs in as the local user, usually not what was meant
-      const suspicious = !!e && !h.user && !!localUser && e.user === localUser;
-      const warn = suspicious ? `<span class="ssh-warn" title="ssh подключится как «${esc(localUser)}»: для этого хоста не сработал ни один User. Если он задан в блоке «Match Host …» — замените на «Match originalhost …»: Match Host сравнивает уже подставленный HostName (IP), а не алиас.">⚠ пользователь ${esc(localUser)}?</span>` : "";
-      return `<tr data-alias="${esc(h.alias)}">
-          <td class="mt-name">${esc(h.alias)}</td>
+            <button class="icon" data-a="edit" title="Изменить (в т.ч. группу)">✎</button>
+            <button class="icon danger" data-a="del" title="Удалить">🗑</button>
+          </td></tr>`;
+
+  // what ssh will really use (`ssh -G`), including Match/Include/wildcard blocks
+  const cfgRow = (h: ConfigHost) => {
+    const e = h.effective;
+    const user = e?.user || h.user, host = e?.hostname || h.hostname || h.alias, port = e?.port && e.port !== "22" ? e.port : "";
+    const key = h.identity_file || (e && e.identity_files.length === 1 ? e.identity_files[0] : "");
+    // no User anywhere for this host → ssh logs in as the local user, usually not what was meant
+    const suspicious = !!e && !h.user && !!localUser && e.user === localUser;
+    const warn = suspicious ? `<span class="ssh-warn" title="ssh подключится как «${esc(localUser)}»: для этого хоста не сработал ни один User. Если он задан в блоке «Match Host …» — замените на «Match originalhost …»: Match Host сравнивает уже подставленный HostName (IP), а не алиас.">⚠ пользователь ${esc(localUser)}?</span>` : "";
+    return `<tr data-alias="${esc(h.alias)}">
+          <td class="mt-name">${esc(h.alias)} <span class="ssh-src" title="из ~/.ssh/config">cfg</span></td>
           <td class="mono">${esc(user ? user + "@" : "")}${esc(host)}${port ? `<span class="muted">:${esc(port)}</span>` : ""}</td>
           <td class="muted">${warn}${(e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : ""}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect-cfg">Подключиться</button>
+            <button class="icon" data-a="group-cfg" title="Группа">📁</button>
             <button class="icon" data-a="copy-cfg" title="Сохранить как профиль OpsDeck (можно привязать пароль из KeePass)">⧉</button>
           </td></tr>`;
-    };
-    const cfgHtml = cfg.length ? `
-      <div class="mt-group"><div class="side-head small">~/.ssh/config <span class="muted">— как это видит ssh</span></div>
-      <table class="res mt-table"><tbody>${cfg.map(row).join("")}</tbody></table></div>` : "";
-    list.innerHTML = own + cfgHtml || `<p class="muted">Пока пусто — добавьте хост или заведите его в ~/.ssh/config.</p>`;
+  };
+
+  function draw() {
+    const q = filter.value.trim().toLowerCase();
+    const match = (...xs: string[]) => !q || xs.join(" ").toLowerCase().includes(q);
+    const own = data.hosts.filter((h) => match(h.name, h.host, h.group, h.user)).sort((a, b) => a.name.localeCompare(b.name));
+    const cfg = data.config.filter((h) => match(h.alias, h.group, h.hostname, h.user, h.effective?.hostname ?? "", h.effective?.user ?? ""));
+    // one row per group; own profiles without a group first, ungrouped ~/.ssh/config hosts last
+    const groups = new Map<string, string[]>();
+    const add = (g: string, html: string) => groups.set(g, [...(groups.get(g) ?? []), html]);
+    own.forEach((h) => add(h.group, ownRow(h)));
+    cfg.forEach((h) => add(h.group || CFG, cfgRow(h)));
+    const order = [...groups.keys()].sort((a, b) =>
+      a === "" ? -1 : b === "" ? 1 : a === CFG ? 1 : b === CFG ? -1 : a.localeCompare(b));
+    list.innerHTML = order.map((g) => `
+      <details class="ssh-group" data-g="${esc(g)}" ${q || !closed.has(g) ? "open" : ""}>
+        <summary><span class="ssh-group-title">${esc(g || "Без группы")}</span><span class="conn-row-count">${groups.get(g)!.length}</span>
+          ${g && g !== CFG ? `<button class="icon ssh-group-ren" data-a="rename" title="Переименовать группу">✎</button>` : ""}</summary>
+        <table class="res mt-table"><tbody>${groups.get(g)!.join("")}</tbody></table>
+      </details>`).join("")
+      || (q ? `<p class="muted">Ничего не найдено.</p>` : `<p class="muted">Пока пусто — добавьте хост или заведите его в ~/.ssh/config.</p>`);
+    list.querySelectorAll<HTMLDetailsElement>("details").forEach((d) => d.addEventListener("toggle", () => {
+      if (q) return; // filtering opens everything; don't remember that
+      d.open ? closed.delete(d.dataset.g!) : closed.add(d.dataset.g!);
+      saveClosed();
+    }));
   }
 
   list.onclick = async (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
+    if (b?.dataset.a === "rename") {
+      e.preventDefault(); // don't toggle the group
+      const from = b.closest<HTMLElement>("details")!.dataset.g!;
+      const to = await ask("Переименовать группу", `Новое имя для «${from}» (пусто — разгруппировать):`, { input: from, ok: "Переименовать" });
+      if (to === null || to === from) return;
+      await invoke("ssh_group_rename", { from, to }).catch((err) => toast(String(err), "err"));
+      if (closed.delete(from) && to) closed.add(to);
+      saveClosed();
+      return load();
+    }
     const tr = b?.closest("tr");
     if (!b || !tr) return;
     const h = data.hosts.find((x) => x.id === tr.dataset.id);
@@ -183,9 +214,19 @@ export function mountSsh(root: HTMLElement) {
       case "connect": if (h) connect(`ssh ${h.name}`, { id: h.id }); break;
       case "connect-cfg": if (c) connect(`ssh ${c.alias}`, { alias: c.alias }); break;
       case "edit": if (h) open(h, true); break;
+      case "group-cfg":
+        if (c) {
+          const known = allGroups();
+          const g = await ask("Группа", `Группа для «${c.alias}»${known.length ? ` (есть: ${known.join(", ")})` : ""}. Пусто — без группы.`,
+            { input: c.group, placeholder: "prod / стенд", ok: "Сохранить" });
+          if (g === null) return;
+          await invoke("ssh_config_group", { alias: c.alias, group: g }).catch((err) => toast(String(err), "err"));
+          load();
+        }
+        break;
       case "copy-cfg":
         if (c) open({ name: c.alias, host: c.hostname || c.alias, user: c.user, port: Number(c.port) || 22,
-          identity_file: c.identity_file, jump: c.proxy_jump, auth: "key" }); // ssh -i expands ~ itself
+          identity_file: c.identity_file, jump: c.proxy_jump, auth: "key", group: c.group }); // ssh -i expands ~ itself
         break;
       case "del":
         if (h && (await ask("Удалить хост", `Удалить «${h.name}» (${h.host})?`, { ok: "Удалить", danger: true })) !== null) {

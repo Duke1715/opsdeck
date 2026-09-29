@@ -143,6 +143,8 @@ pub fn run() {
             ssh::ssh_delete,
             ssh::ssh_connect,
             ssh::ssh_local_user,
+            ssh::ssh_config_group,
+            ssh::ssh_group_rename,
             sysmon::sys_local,
             sysmon::sys_remote,
             ports::ports_scan,
