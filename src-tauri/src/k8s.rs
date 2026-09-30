@@ -417,10 +417,68 @@ async fn forget(state: &K8sState, ctx: &Ctx) {
     state.clients.lock().await.remove(&(ctx.file.clone(), ctx.context.clone()));
 }
 
-async fn timed<T, E: std::fmt::Display>(fut: impl std::future::Future<Output = Result<T, E>>) -> Result<T, String> {
+/// Error text with its causes: "ServiceError: client error (SendRequest)" alone says nothing,
+/// the reason ("connection closed before message completed", "connection reset"…) is in the chain.
+fn describe(e: &(dyn std::error::Error + 'static)) -> String {
+    let mut s = e.to_string();
+    let mut cur = e.source();
+    while let Some(c) = cur {
+        let t = c.to_string();
+        if !s.contains(&t) {
+            s.push_str(": ");
+            s.push_str(&t);
+        }
+        cur = c.source();
+    }
+    s
+}
+
+async fn timed<T, E: std::error::Error + 'static>(fut: impl std::future::Future<Output = Result<T, E>>) -> Result<T, String> {
     match tokio::time::timeout(REQUEST_TIMEOUT, fut).await {
-        Ok(r) => r.map_err(err),
+        Ok(r) => r.map_err(|e| describe(&e)),
         Err(_) => Err("таймаут запроса к API (20 с)".into()),
+    }
+}
+
+/// The request never got a proper answer: dead pooled connection, reset, TLS/connect failure.
+fn is_transport(e: &kube::Error) -> bool {
+    matches!(e, kube::Error::Service(_) | kube::Error::HyperError(_))
+}
+
+/// Runs an API call; on a transport error drops the cached client (and with it the pool of
+/// keep-alive connections the server or a load balancer may have closed) and tries once more
+/// on a fresh connection. For non-idempotent calls pass `retry = false`.
+async fn call<T, Fut>(state: &K8sState, ctx: &Ctx, what: &str, retry: bool, f: impl Fn(Client) -> Fut) -> Result<T, kube::Error>
+where
+    Fut: std::future::Future<Output = Result<T, kube::Error>>,
+{
+    let timeout = |fut: Fut| async move {
+        tokio::time::timeout(REQUEST_TIMEOUT, fut)
+            .await
+            .unwrap_or_else(|_| Err(kube::Error::Service("таймаут запроса к API (20 с)".into())))
+    };
+    let c = client(state, ctx).await.map_err(|e| kube::Error::Service(e.into()))?;
+    match timeout(f(c)).await {
+        Err(e) if is_transport(&e) => {
+            log::warn!("k8s {what} [{}]: {}; повтор на новом соединении", ctx.context, describe(&e));
+            forget(state, ctx).await;
+            if !retry {
+                return Err(e);
+            }
+            let c = client(state, ctx).await.map_err(|e| kube::Error::Service(e.into()))?;
+            let r = timeout(f(c)).await;
+            if let Err(e) = &r {
+                log::error!("k8s {what} [{}]: {}", ctx.context, describe(e));
+            }
+            r
+        }
+        Err(e) => {
+            if !matches!(&e, kube::Error::Api(s) if s.code == 404 || s.code == 409) {
+                log::warn!("k8s {what} [{}]: {}", ctx.context, describe(&e));
+            }
+            Err(e)
+        }
+        ok => ok,
     }
 }
 
@@ -465,6 +523,29 @@ fn api(client: Client, kind: &str, ns: Option<&str>) -> Result<Api<DynamicObject
     })
 }
 
+/// `call` for a built-in kind/CRD: the closure gets a ready Api (on a fresh client when retried).
+async fn with_api<T, Fut>(
+    state: &K8sState,
+    ctx: &Ctx,
+    what: &str,
+    kind: &str,
+    ns: Option<&str>,
+    f: impl Fn(Api<DynamicObject>) -> Fut,
+) -> Result<T, kube::Error>
+where
+    Fut: std::future::Future<Output = Result<T, kube::Error>>,
+{
+    let (ar, namespaced) = resource(kind).map_err(|e| kube::Error::Service(e.into()))?;
+    let ns = ns.filter(|n| namespaced && !n.is_empty());
+    call(state, ctx, what, true, |c| {
+        f(match ns {
+            Some(ns) => Api::namespaced_with(c, ns, &ar),
+            None => Api::all_with(c, &ar),
+        })
+    })
+    .await
+}
+
 fn clean(mut v: Value) -> Value {
     if let Some(meta) = v.get_mut("metadata").and_then(Value::as_object_mut) {
         meta.remove("managedFields");
@@ -482,13 +563,15 @@ pub async fn k8s_list(
     kind: String,
     namespace: Option<String>,
 ) -> Result<Vec<Value>, String> {
-    let c = client(&state, &ctx).await?;
-    let res = timed(api(c, &kind, namespace.as_deref())?.list(&ListParams::default())).await;
+    let res = with_api(&state, &ctx, &format!("list {kind}"), &kind, namespace.as_deref(), |a| async move {
+        a.list(&ListParams::default()).await
+    })
+    .await;
     match res {
         Ok(list) => Ok(list.items.into_iter().filter_map(|o| serde_json::to_value(o).ok()).map(clean).collect()),
         Err(e) => {
-            forget(&state, &ctx).await;
-            Err(e)
+            forget(&state, &ctx).await; // e.g. an expired exec/oidc token
+            Err(describe(&e))
         }
     }
 }
@@ -501,8 +584,12 @@ pub async fn k8s_get_yaml(
     namespace: Option<String>,
     name: String,
 ) -> Result<String, String> {
-    let c = client(&state, &ctx).await?;
-    let obj = timed(api(c, &kind, namespace.as_deref())?.get(&name)).await?;
+    let obj = with_api(&state, &ctx, &format!("get {kind}/{name}"), &kind, namespace.as_deref(), |a| {
+        let name = name.clone();
+        async move { a.get(&name).await }
+    })
+    .await
+    .map_err(|e| describe(&e))?;
     serde_yaml_ng::to_string(&clean(serde_json::to_value(obj).map_err(err)?)).map_err(err)
 }
 
@@ -519,9 +606,13 @@ pub async fn k8s_apply_yaml(
     let v = clean(serde_yaml_ng::from_str::<Value>(&yaml).map_err(|e| format!("YAML: {e}"))?);
     let name = v["metadata"]["name"].as_str().ok_or("metadata.name missing")?.to_string();
     let ns = v["metadata"]["namespace"].as_str().map(str::to_string).or(namespace);
-    let c = client(&state, &ctx).await?;
     let params = PatchParams::apply("opsdeck").force();
-    timed(api(c, &kind, ns.as_deref())?.patch(&name, &params, &Patch::Apply(&v))).await?;
+    with_api(&state, &ctx, &format!("apply {kind}/{name}"), &kind, ns.as_deref(), |a| {
+        let (name, params, v) = (name.clone(), params.clone(), v.clone());
+        async move { a.patch(&name, &params, &Patch::Apply(&v)).await }
+    })
+    .await
+    .map_err(|e| describe(&e))?;
     Ok(())
 }
 
@@ -534,9 +625,17 @@ pub async fn k8s_delete(
     name: String,
 ) -> Result<(), String> {
     ensure_writable(&ctx)?;
-    let c = client(&state, &ctx).await?;
-    timed(api(c, &kind, namespace.as_deref())?.delete(&name, &DeleteParams::default())).await?;
-    Ok(())
+    let r = with_api(&state, &ctx, &format!("delete {kind}/{name}"), &kind, namespace.as_deref(), |a| {
+        let name = name.clone();
+        async move { a.delete(&name, &DeleteParams::default()).await }
+    })
+    .await;
+    match r {
+        Ok(_) => Ok(()),
+        // the first attempt may have gone through before the connection died
+        Err(kube::Error::Api(s)) if s.code == 404 => Ok(()),
+        Err(e) => Err(describe(&e)),
+    }
 }
 
 #[tauri::command]
@@ -552,10 +651,20 @@ pub async fn k8s_scale(
     if !matches!(kind.as_str(), "deployments" | "statefulsets" | "replicasets") {
         return Err("scale не поддерживается для этого типа".into());
     }
-    let c = client(&state, &ctx).await?;
     let patch = json!({ "spec": { "replicas": replicas } });
-    timed(api(c, &kind, Some(&namespace))?.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))).await?;
+    merge_patch(&state, &ctx, &format!("scale {kind}/{name}"), &kind, &namespace, &name, patch).await?;
     Ok(())
+}
+
+/// Merge patch with the retry of `with_api` (merge patches with fixed values are idempotent).
+async fn merge_patch(state: &K8sState, ctx: &Ctx, what: &str, kind: &str, ns: &str, name: &str, patch: Value) -> Result<(), String> {
+    with_api(state, ctx, what, kind, Some(ns), |a| {
+        let (name, patch) = (name.to_string(), patch.clone());
+        async move { a.patch(&name, &PatchParams::default(), &Patch::Merge(&patch)).await }
+    })
+    .await
+    .map(|_| ())
+    .map_err(|e| describe(&e))
 }
 
 /// Same as `kubectl rollout restart`.
@@ -571,11 +680,11 @@ pub async fn k8s_restart(
     if !matches!(kind.as_str(), "deployments" | "statefulsets" | "daemonsets") {
         return Err("restart не поддерживается для этого типа".into());
     }
-    let c = client(&state, &ctx).await?;
+    // the timestamp is fixed before the call, so a retry sets the same value (one restart)
     let now = chrono::Utc::now().to_rfc3339();
     let patch = json!({ "spec": { "template": { "metadata": { "annotations": {
         "kubectl.kubernetes.io/restartedAt": now } } } } });
-    timed(api(c, &kind, Some(&namespace))?.patch(&name, &PatchParams::default(), &Patch::Merge(&patch))).await?;
+    merge_patch(&state, &ctx, &format!("restart {kind}/{name}"), &kind, &namespace, &name, patch).await?;
     Ok(())
 }
 
