@@ -556,3 +556,32 @@ p.small { font-size: 12px; margin: 0; }
 .web-zoom { display: inline-flex; align-items: center; gap: 1px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
 .web-zoom-val { min-width: 64px; padding: 0 6px; font-size: 11.5px; color: var(--muted); }
 .web-zoom-val.manual { color: var(--text, inherit); font-weight: 600; }
+
+/* terminal: files panel */
+.files-panel { flex: none; width: 280px; min-width: 200px; max-width: 45%; resize: horizontal; overflow: hidden;
+  display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--panel); }
+.files-panel[hidden] { display: none; }
+.fx-head { gap: 2px; }
+.fx-head .icon.on, [data-act=files].on { color: var(--accent); }
+.fx-root { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: 11.5px;
+  color: var(--muted); min-width: 0; flex: 1; }
+.fx-bar { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.fx-bar select { flex: 1; min-width: 0; }
+.fx-git { padding: 4px 10px; font-size: 11.5px; }
+.fx-git:empty { display: none; }
+.fx-tree { flex: 1; overflow: auto; padding: 4px 0; font-size: 12.5px; outline: none; }
+.fx-row { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px calc(8px + var(--d) * 14px); cursor: pointer;
+  white-space: nowrap; line-height: 20px; }
+.fx-row:hover { background: var(--panel-2); }
+.fx-row.err { color: var(--danger); white-space: normal; cursor: default; }
+.fx-caret { width: 10px; flex: none; color: var(--muted); font-size: 10px; }
+.fx-ico { width: 16px; flex: none; text-align: center; font-size: 12px; }
+.fx-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.fx-acts { display: none; gap: 0; flex: none; }
+.fx-row:hover .fx-acts { display: inline-flex; }
+.fx-acts .icon { padding: 0 4px; height: 18px; font-size: 12px; }
+.fx-row.g-mod .fx-name { color: #e6c07b; }
+.fx-row.g-new .fx-name { color: #98d982; }
+.fx-row.g-del .fx-name { color: #ef5f6b; text-decoration: line-through; }
+.fx-row.g-dirty .fx-name::after { content: " •"; color: #e6c07b; }
+.fx-empty { padding: 12px; }

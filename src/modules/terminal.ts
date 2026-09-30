@@ -6,6 +6,7 @@ import { Block, fmtDuration } from "./blocks";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
+import { attachPathLinks, mountFiles } from "./files";
 import { esc, toast } from "./ui";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
@@ -47,8 +48,10 @@ export const terminalApi = {
 export function mountTerminal(root: HTMLElement) {
   root.classList.add("terminal-view");
   root.innerHTML = `
+    <aside class="files-panel" hidden></aside>
     <div class="term-main">
       <div class="tabbar">
+        <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">📁</button>
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">＋</button>
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">◫</button>
@@ -80,6 +83,7 @@ export function mountTerminal(root: HTMLElement) {
 
   const tabs: Tab[] = [];
   let activeTab: Tab | null = null;
+  const filesPanel = $(".files-panel");
   let ai: PtyTerminal | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
@@ -150,6 +154,7 @@ export function mountTerminal(root: HTMLElement) {
     tab.host.appendChild(el);
 
     const pty = new PtyTerminal(el.querySelector<HTMLElement>(".pane-term")!, spawn);
+    attachPathLinks(pty);
     const pane: Pane = { pty, el, tab, keepOpen: !!keepOpen };
     tab.panes.push(pane);
     if (title) tab.label.textContent = title;
@@ -295,6 +300,22 @@ export function mountTerminal(root: HTMLElement) {
     });
   }
 
+  // ----- files panel -----
+
+  const files = mountFiles(filesPanel, {
+    cwd: () => cwd(),
+    paste: (text) => { const t = activePane()?.pty; if (t) { t.term.paste(text); t.term.focus(); } },
+  });
+
+  function toggleFiles(force?: boolean) {
+    const show = force ?? filesPanel.hidden;
+    filesPanel.hidden = !show;
+    save("opsdeck.files.open", show ? "1" : "0");
+    $("[data-act=files]").classList.toggle("on", show);
+    if (show) files.shown();
+    requestAnimationFrame(() => activeTab?.panes.forEach((p) => p.pty.resize()));
+  }
+
   // ----- AI panel -----
 
   function startAi() {
@@ -430,6 +451,7 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
   $("[data-act=rec]").onclick = toggleRec;
+  $("[data-act=files]").onclick = () => toggleFiles();
   $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
   $("[data-act=ai]").onclick = () => toggleAi();
   $("[data-act=send]").onclick = sendSelection;
@@ -446,6 +468,7 @@ export function mountTerminal(root: HTMLElement) {
     else if (k === "D") split("row");
     else if (k === "E") split("column");
     else if (k === "I") toggleAi();
+    else if (k === "B") toggleFiles();
     else if (k === "A") sendSelection();
     else if (k === "ArrowUp" && p) p.pty.blocks.jump(-1);
     else if (k === "ArrowDown" && p) p.pty.blocks.jump(1);
@@ -466,6 +489,7 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Разделить вправо", hint: "Ctrl+Shift+D", run: () => { show(); split("row"); } },
     { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
     { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },
+    { group: "Терминал", title: "Файлы: показать/скрыть", hint: "Ctrl+Shift+B", run: () => { show(); toggleFiles(); } },
     { group: "Терминал", title: "Запись сессии: вкл/выкл", hint: "⏺", run: () => { show(); toggleRec(); } },
     { group: "Терминал", title: `Подсветка ввода: ${hlPrefs().input ? "выключить" : "включить"}`, hint: "цвета команды при наборе", run: () => setHlPrefs({ input: !hlPrefs().input }) },
     { group: "Терминал", title: `Подсветка вывода: ${hlPrefs().output ? "выключить" : "включить"}`, hint: "ERROR/WARN, статусы, IP, ссылки", run: () => setHlPrefs({ output: !hlPrefs().output }) },
@@ -482,4 +506,5 @@ export function mountTerminal(root: HTMLElement) {
   const show = () => window.dispatchEvent(new CustomEvent("show-view", { detail: "terminal" }));
 
   newTab();
+  if (load("opsdeck.files.open", "0") === "1") toggleFiles(true);
 }

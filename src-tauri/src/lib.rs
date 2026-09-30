@@ -3,6 +3,7 @@ use tauri::Manager;
 mod alerts;
 mod connectors;
 mod diag;
+mod editor;
 mod embed;
 mod ide;
 mod k8s;
@@ -62,6 +63,12 @@ pub fn run() {
             pty::pty_record_stop,
             pty::pty_records_open,
             pty::shell_commands,
+            editor::fs_list,
+            editor::fs_git_status,
+            editor::fs_resolve,
+            editor::fs_reveal,
+            editor::editors_detect,
+            editor::editor_open,
             tools::tool_run,
             tools::tool_stop,
             connectors::connectors_list,
