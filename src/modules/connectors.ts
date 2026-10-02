@@ -10,7 +10,7 @@ const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
   argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
   gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
-  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в 🔔." },
+  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
   ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
@@ -174,7 +174,7 @@ export function mountConnectors(root: HTMLElement) {
       <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">⧉</button></div><pre>${esc(curl)}</pre></div>
       <details><summary class="muted">Формат находки</summary><pre>${esc(format)}</pre></details>
       <div class="side-head small">Pull — анализатор на другой машине</div>
-      <p class="muted">Укажите выше URL, по которому он отдаёт JSON с теми же объектами (массив или {"findings": [...]}). OpsDeck будет опрашивать его вместе с Grafana (интервал — в ⚙ раздела 🔔); находки, пропавшие из ленты, закрываются. Авторизация — как выбрано выше.</p>`;
+      <p class="muted">Укажите выше URL, по которому он отдаёт JSON с теми же объектами (массив или {"findings": [...]}). OpsDeck будет опрашивать его вместе с Grafana (интервал — в ⚙ раздела «Алерты»); находки, пропавшие из ленты, закрываются. Авторизация — как выбрано выше.</p>`;
   }
 
   form.addEventListener("click", async (e) => {
@@ -212,7 +212,7 @@ export function mountConnectors(root: HTMLElement) {
       refresh();
       const n = await invoke<number>("alerts_test_source", { id: connector.id });
       res.classList.add("ok");
-      res.textContent = `✓ Работает: активных алертов сейчас ${n}. Они в разделе 🔔, дальше опрос идёт сам.`;
+      res.textContent = `✓ Работает: активных алертов сейчас ${n}. Они в разделе «Алерты», дальше опрос идёт сам.`;
     } catch (err) {
       res.classList.add("bad");
       res.textContent = `✗ ${err}`;
