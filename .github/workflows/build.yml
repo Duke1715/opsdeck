@@ -1,6 +1,7 @@
 # Сборка OpsDeck на нативных раннерах (своя ОС и архитектура, без кросс-компиляции).
 # Пуш в main/master и PR — быстрая проверка: только linux-x64 (+ артефакт в Actions).
-# Тег v* (удобнее через `npm run release -- 0.2.0 "что нового"`) и ручной запуск — все 6 платформ;
+# Тег v* (удобнее через `npm run release -- 0.2.0 "что нового"`) и ручной запуск — все 5 платформ
+# (Linux x64/arm64, Windows x64, macOS arm64/x64; Windows ARM не собирается — слишком мало пользователей);
 # на теге релиз собирается черновиком и публикуется последним шагом, только если прошли
 # и проверки, и все сборки (с подписанными файлами обновлений latest.json).
 name: build
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       all_platforms:
-        description: "Собрать все 6 платформ (иначе только linux-x64)"
+        description: "Собрать все 5 платформ (иначе только linux-x64)"
         type: boolean
         default: true
 
@@ -40,7 +41,6 @@ jobs:
             {"name":"linux-x64","os":"ubuntu-22.04"},
             {"name":"linux-arm64","os":"ubuntu-22.04-arm"},
             {"name":"windows-x64","os":"windows-latest"},
-            {"name":"windows-arm64","os":"windows-11-arm","experimental":true},
             {"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},
             {"name":"macos-x64","os":"macos-15-intel","target":"x86_64-apple-darwin"}
           ]'
@@ -71,7 +71,7 @@ jobs:
 
   # идёт параллельно с checks; на теге публикацию релиза держит job publish, который ждёт обоих.
   # ubuntu-22.04 — старый glibc: .deb/AppImage запускаются и на более новых дистрибутивах;
-  # windows-11-arm пока в preview (experimental), arm64-раннеры бесплатны для публичных репозиториев.
+  # arm64-раннеры бесплатны для публичных репозиториев.
   build:
     name: build ${{ matrix.name }}
     needs: plan
@@ -81,7 +81,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental == true }}
     env:
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
