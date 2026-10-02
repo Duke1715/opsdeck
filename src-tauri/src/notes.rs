@@ -42,6 +42,11 @@ fn is_md(p: &Path) -> bool {
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+    walk_all(root, dir, out, &mut Vec::new());
+}
+
+/// Notes and (non-hidden) folders, relative to `root`; folders are listed so empty ones show in the tree.
+fn walk_all(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let name = e.file_name();
@@ -50,7 +55,10 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
         }
         let p = e.path();
         match e.file_type() {
-            Ok(t) if t.is_dir() => walk(root, &p, out),
+            Ok(t) if t.is_dir() => {
+                dirs.push(p.strip_prefix(root).unwrap_or(&p).to_path_buf());
+                walk_all(root, &p, out, dirs)
+            }
             Ok(t) if t.is_file() && is_md(&p) => out.push(p.strip_prefix(root).unwrap_or(&p).to_path_buf()),
             _ => {}
         }
@@ -68,14 +76,15 @@ pub struct VaultInfo {
     root: String,
     name: String,
     notes: Vec<NoteInfo>,
+    folders: Vec<String>,
 }
 
 #[tauri::command]
 pub async fn notes_list() -> Result<VaultInfo, String> {
     let root = vault().await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut files = Vec::new();
-        walk(&root, &root, &mut files);
+        let (mut files, mut dirs) = (Vec::new(), Vec::new());
+        walk_all(&root, &root, &mut files, &mut dirs);
         let notes = files
             .into_iter()
             .map(|rel| {
@@ -91,6 +100,7 @@ pub async fn notes_list() -> Result<VaultInfo, String> {
             name: root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             root: root.to_string_lossy().into_owned(),
             notes,
+            folders: dirs.into_iter().map(|d| d.to_string_lossy().into_owned()).collect(),
         }
     })
     .await
@@ -113,6 +123,31 @@ pub async fn note_write(path: String, content: String) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(err)?;
     }
     fs::write(full, content).map_err(err)
+}
+
+/// Move/rename a note or a whole folder inside the vault. Never overwrites.
+#[tauri::command]
+pub async fn note_move(from: String, to: String) -> Result<(), String> {
+    let root = vault().await?;
+    let src = resolve(&root, &from)?;
+    let dst = resolve(&root, &to)?;
+    if !src.exists() {
+        return Err(format!("«{from}» не найден"));
+    }
+    if dst.exists() {
+        return Err(format!("«{to}» уже существует"));
+    }
+    if src.is_dir() {
+        if dst.starts_with(&src) {
+            return Err("нельзя переместить папку внутрь неё самой".into());
+        }
+    } else if !is_md(&src) || !is_md(&dst) {
+        return Err("перемещать можно только .md и папки".into());
+    }
+    if let Some(dir) = dst.parent() {
+        fs::create_dir_all(dir).map_err(err)?;
+    }
+    fs::rename(&src, &dst).map_err(err)
 }
 
 #[derive(Serialize)]

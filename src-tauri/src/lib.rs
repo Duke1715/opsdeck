@@ -128,6 +128,7 @@ pub fn run() {
             notes::notes_list,
             notes::note_read,
             notes::note_write,
+            notes::note_move,
             notes::note_search,
             notes::note_open_obsidian,
             notes::note_daily,

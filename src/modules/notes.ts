@@ -7,7 +7,7 @@ import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 
 type Note = { path: string; mtime: number };
-type Vault = { root: string; name: string; notes: Note[] };
+type Vault = { root: string; name: string; notes: Note[]; folders?: string[] };
 type Hit = { path: string; line: number; text: string };
 
 /** [[Note]] / [[Note|alias]] → links handled by the click handler below. */
@@ -69,8 +69,17 @@ export function mountNotes(root: HTMLElement) {
 
   type Folder = { name: string; path: string; folders: Map<string, Folder>; notes: Note[]; count: number };
 
-  function buildTree(notes: Note[]): Folder {
+  function buildTree(notes: Note[], dirs: string[] = []): Folder {
     const root: Folder = { name: "", path: "", folders: new Map(), notes: [], count: 0 };
+    // empty folders too, so a note can be created in / dragged to them
+    for (const d of dirs) {
+      let f = root;
+      for (const part of d.split("/")) {
+        const path = f.path ? `${f.path}/${part}` : part;
+        if (!f.folders.has(part)) f.folders.set(part, { name: part, path, folders: new Map(), notes: [], count: 0 });
+        f = f.folders.get(part)!;
+      }
+    }
     for (const n of notes) {
       const parts = n.path.split("/");
       let f = root;
@@ -99,7 +108,8 @@ export function mountNotes(root: HTMLElement) {
     return folders.map((d) => `
       <div class="tree-dir ${openDirs.has(d.path) ? "open" : ""}" data-dir="${esc(d.path)}">
         <button class="tree-row" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="tree-icon">📁</span>
-          <span class="tree-label">${esc(d.name)}</span><span class="tree-count">${d.count}</span></button>
+          <span class="tree-label">${esc(d.name)}</span><span class="tree-count">${d.count}</span>
+          <span class="tree-add" data-add="${esc(d.path)}" title="Новая заметка в этой папке">＋</span></button>
         <div class="tree-children" style="--guide:${depth}">${openDirs.has(d.path) ? renderFolder(d, depth + 1) : ""}</div>
       </div>`).join("") + notes.map((n) => noteBtn(n, depth)).join("");
   }
@@ -109,7 +119,7 @@ export function mountNotes(root: HTMLElement) {
   function drawList() {
     if (!vault) return;
     if (q.value.trim().length >= 2) return search();
-    tree = buildTree(vault.notes);
+    tree = buildTree(vault.notes, vault.folders);
     const recent = [...vault.notes].sort((a, b) => b.mtime - a.mtime).slice(0, 6);
     const recentOpen = localStorage.getItem("opsdeck.notes.recent") !== "0";
     listEl.innerHTML = `
@@ -134,10 +144,14 @@ export function mountNotes(root: HTMLElement) {
     return f;
   }
 
+  let lastFolder = "";
   listEl.addEventListener("click", (e) => {
+    const add = (e.target as HTMLElement).closest<HTMLElement>(".tree-add");
+    if (add) { e.stopPropagation(); newNote(add.dataset.add!); return; }
     const row = (e.target as HTMLElement).closest<HTMLElement>(".tree-row");
     if (!row) return;
     const dir = row.parentElement!;
+    if (dir.dataset.dir !== undefined) lastFolder = dir.dataset.dir;
     if (dir.dataset.section === "recent") {
       dir.classList.toggle("open");
       localStorage.setItem("opsdeck.notes.recent", dir.classList.contains("open") ? "1" : "0");
@@ -282,17 +296,109 @@ export function mountNotes(root: HTMLElement) {
   $("[data-a=daily]").onclick = async () => {
     try { const p = await invoke<string>("note_daily"); await loadVault(); openNote(p); } catch (e) { toast(String(e), "err"); }
   };
-  $("[data-a=new]").onclick = async () => {
-    const name = await ask("Новая заметка", "Путь внутри vault (папки через /):", { input: "Inbox/", ok: "Создать" });
-    if (!name) return;
-    const path = name.endsWith(".md") ? name : `${name}.md`;
+  /** folder "" = vault root; the name may still contain subfolders ("a/b/note"). */
+  async function newNote(folder: string | null) {
+    const name = folder === null
+      ? await ask("Новая заметка", "Путь внутри vault (папки через /):", { input: lastFolder ? `${lastFolder}/` : "Inbox/", ok: "Создать" })
+      : await ask("Новая заметка", `Имя заметки в папке «${folder || vault?.name || "/"}»:`, { input: "", ok: "Создать" });
+    const clean = name?.trim().replace(/^\/+/, "");
+    if (!clean || clean.endsWith("/")) return;
+    const rel = folder ? `${folder}/${clean}` : clean;
+    const path = rel.endsWith(".md") ? rel : `${rel}.md`;
+    if (vault?.notes.some((n) => n.path === path)) { toast(`«${path}» уже есть — открываю её`); openNote(path); return; }
     try {
       await invoke("note_write", { path, content: `# ${path.split("/").pop()!.replace(/\.md$/, "")}\n\n` });
       await loadVault();
       mode = "edit";
       openNote(path);
     } catch (e) { toast(String(e), "err"); }
-  };
+  }
+  $("[data-a=new]").onclick = () => newNote(null);
+
+  // ----- drag notes and folders between folders (pointer events: HTML5 DnD is unreliable in the webview) -----
+  const parentOf = (p: string) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+  const baseOf = (p: string) => p.split("/").pop()!;
+  let dragJustEnded = false;
+  listEl.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagation(); e.preventDefault(); } }, true);
+  listEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || q.value.trim().length >= 2) return;
+    const t = e.target as HTMLElement;
+    if (t.closest(".tree-add")) return;
+    const note = t.closest<HTMLElement>(".note-item:not(.hit)");
+    const row = t.closest<HTMLElement>(".tree-row");
+    const src = note ? { path: note.dataset.p!, dir: false }
+      : row?.parentElement?.dataset.dir !== undefined ? { path: row!.parentElement!.dataset.dir!, dir: true } : null;
+    if (!src) return;
+    const x0 = e.clientX, y0 = e.clientY;
+    let ghost: HTMLElement | null = null;
+    let target: string | null = null;
+    let hoverDir: HTMLElement | null = null, hoverTimer = 0;
+    const valid = (dst: string | null) => dst !== null && dst !== parentOf(src.path)
+      && !(src.dir && (dst === src.path || dst.startsWith(src.path + "/")));
+    const mark = (dst: string | null) => {
+      listEl.querySelectorAll(".drop-target").forEach((x) => x.classList.remove("drop-target"));
+      listEl.classList.toggle("drop-root", dst === "");
+      if (dst) listEl.querySelector(`.tree-dir[data-dir="${CSS.escape(dst)}"] > .tree-row`)?.classList.add("drop-target");
+    };
+    const move = (ev: PointerEvent) => {
+      if (!ghost) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        ghost = document.createElement("div");
+        ghost.className = "drag-ghost";
+        ghost.textContent = (src.dir ? "📁 " : "📄 ") + baseOf(src.path).replace(/\.md$/, "");
+        document.body.appendChild(ghost);
+      }
+      ghost.style.left = `${ev.clientX + 12}px`;
+      ghost.style.top = `${ev.clientY + 8}px`;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      let dst: string | null = null;
+      let dirEl: HTMLElement | null = null;
+      if (el && listEl.contains(el) && !el.closest("[data-section]")) {
+        const r = el.closest<HTMLElement>(".tree-row");
+        const n = el.closest<HTMLElement>(".note-item");
+        if (r?.parentElement?.dataset.dir !== undefined) { dirEl = r!.parentElement!; dst = dirEl.dataset.dir!; }
+        else if (n) dst = parentOf(n.dataset.p!);
+        else dst = "";
+      }
+      // hovering a closed folder for a moment opens it
+      if (dirEl !== hoverDir) {
+        clearTimeout(hoverTimer);
+        hoverDir = dirEl;
+        if (dirEl && !dirEl.classList.contains("open")) {
+          const d = dirEl;
+          hoverTimer = window.setTimeout(() => d.querySelector<HTMLElement>(":scope > .tree-row")?.click(), 700);
+        }
+      }
+      target = valid(dst) ? dst : null;
+      mark(target);
+    };
+    const up = async () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      clearTimeout(hoverTimer);
+      if (!ghost) return;
+      ghost.remove();
+      mark(null);
+      dragJustEnded = true;
+      setTimeout(() => { dragJustEnded = false; }, 0);
+      if (target === null) return;
+      const dest = (target ? `${target}/` : "") + baseOf(src.path);
+      try {
+        await invoke("note_move", { from: src.path, to: dest });
+        // keep the open note and the expanded folders pointing at the new place
+        if (current === src.path) current = dest;
+        else if (src.dir && current?.startsWith(src.path + "/")) current = dest + current.slice(src.path.length);
+        if (current) $(".note-path").textContent = current.replace(/\.md$/, "");
+        if (src.dir) for (const d of [...openDirs]) if (d === src.path || d.startsWith(src.path + "/")) { openDirs.delete(d); openDirs.add(dest + d.slice(src.path.length)); }
+        if (target) reveal(`${target}/x`);
+        saveOpen();
+        await loadVault();
+        toast(`Перемещено в «${target || vault?.name || "/"}»`);
+      } catch (err) { toast(String(err), "err"); }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
   let t = 0;
   q.oninput = () => { clearTimeout(t); t = window.setTimeout(drawList, 200); };
 

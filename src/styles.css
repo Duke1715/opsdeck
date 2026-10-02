@@ -594,3 +594,12 @@ p.small { font-size: 12px; margin: 0; }
 .fx-row.g-del .fx-name { color: #ef5f6b; text-decoration: line-through; }
 .fx-row.g-dirty .fx-name::after { content: " •"; color: #e6c07b; }
 .fx-empty { padding: 12px; }
+
+/* notes: add-in-folder + drag */
+.tree-row .tree-add { margin-left: 4px; padding: 0 4px; border-radius: 4px; opacity: 0; color: var(--muted); }
+.tree-row:hover .tree-add { opacity: .8; }
+.tree-row .tree-add:hover { opacity: 1; color: var(--accent); background: var(--panel-2); }
+.notes-list .drop-target { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 1px dashed var(--accent); outline-offset: -1px; }
+.notes-list.drop-root { outline: 1px dashed var(--accent); outline-offset: -3px; }
+.drag-ghost { position: fixed; z-index: 1000; pointer-events: none; padding: 3px 8px; border-radius: 6px; font-size: 12px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--accent); box-shadow: 0 4px 14px #0006; white-space: nowrap; }
