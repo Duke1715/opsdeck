@@ -20,17 +20,24 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { registerProvider } from "./modules/palette";
 
-type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
+type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean; svg?: string };
+
+// line icons drawn with currentColor, so they match the monochrome text glyphs (emoji render in color)
+const svgIcon = (body: string) =>
+  `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICON_KEY = svgIcon('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2"/>');
+const ICON_BELL = svgIcon('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>');
+const ICON_SERVER = svgIcon('<rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/>');
 
 const views: View[] = [
   { id: "terminal", icon: "▶", title: "Терминал + AI", mount: mountTerminal },
   { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
   { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
-  { id: "alerts", icon: "🔔", title: "Алерты", mount: mountAlerts },
+  { id: "alerts", icon: "🔔", svg: ICON_BELL, title: "Алерты", mount: mountAlerts },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
-  { id: "ssh", icon: "🖧", title: "SSH", mount: mountSsh },
+  { id: "ssh", icon: "🖧", svg: ICON_SERVER, title: "SSH", mount: mountSsh },
   { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
-  { id: "vault", icon: "🔑", title: "KeePass", mount: mountKeepass },
+  { id: "vault", icon: "🔑", svg: ICON_KEY, title: "KeePass", mount: mountKeepass },
   { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
   { id: "settings", icon: "⚙", title: "Настройки", mount: mountSettings, bottom: true },
 ];
@@ -49,7 +56,7 @@ for (const v of views) {
   const btn = document.createElement("button");
   btn.dataset.view = v.id;
   btn.title = v.title;
-  btn.textContent = v.icon;
+  if (v.svg) btn.innerHTML = v.svg; else btn.textContent = v.icon;
   btn.onclick = () => show(v.id);
   if (v.bottom) btn.classList.add("bottom");
   sidebar.appendChild(btn);
@@ -61,6 +68,51 @@ for (const v of views) {
   panes.set(v.id, pane);
   v.mount(pane);
 }
+
+// ----- user order of the sidebar icons: drag with the mouse, kept in localStorage -----
+const ORDER_KEY = "opsdeck.sidebar.order";
+const movable = () => [...sidebar.querySelectorAll<HTMLButtonElement>("button[data-view]:not(.bottom)")];
+const bottomBtn = sidebar.querySelector("button.bottom");
+try {
+  const saved: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]");
+  const byId = new Map(movable().map((b) => [b.dataset.view!, b]));
+  // saved ones first in their order; views added in later versions keep their default place after them
+  for (const id of saved) { const b = byId.get(id); if (b) sidebar.insertBefore(b, bottomBtn); }
+  for (const b of movable()) if (!saved.includes(b.dataset.view!)) sidebar.insertBefore(b, bottomBtn);
+} catch { /* broken value: default order */ }
+
+// pointer-based (HTML5 drag-and-drop is unreliable inside the Tauri webview)
+let dragJustEnded = false;
+sidebar.addEventListener("pointerdown", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-view]:not(.bottom)");
+  if (!btn || e.button !== 0) return;
+  const startY = e.clientY;
+  let dragging = false;
+  const move = (ev: PointerEvent) => {
+    if (!dragging) {
+      if (Math.abs(ev.clientY - startY) < 6) return;
+      dragging = true;
+      btn.setPointerCapture(ev.pointerId);
+      btn.classList.add("dragging");
+    }
+    const others = movable().filter((b) => b !== btn);
+    const before = others.find((b) => { const r = b.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+    sidebar.insertBefore(btn, before ?? bottomBtn);
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    if (!dragging) return;
+    btn.classList.remove("dragging");
+    dragJustEnded = true;
+    setTimeout(() => { dragJustEnded = false; }, 0);
+    try { localStorage.setItem(ORDER_KEY, JSON.stringify(movable().map((b) => b.dataset.view))); } catch { /* ignore */ }
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+});
+// the click that ends a drag must not switch the view
+sidebar.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 // a module asked for a terminal tab: switch to the terminal view (the tab itself is created there)
 window.addEventListener("open-terminal", () => show("terminal"));
