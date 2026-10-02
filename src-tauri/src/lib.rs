@@ -151,6 +151,7 @@ pub fn run() {
             updater::update_check,
             updater::app_version,
             updater::update_install,
+            updater::releases_list,
             alerts::alerts_get,
             alerts::alerts_ack,
             alerts::alerts_clear,

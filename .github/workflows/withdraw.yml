@@ -1,0 +1,56 @@
+# Аварийный откат: версия вышла с критической ошибкой.
+# Actions → «Отозвать версию» → Run workflow → номер версии (например 0.3.0).
+# Релиз помечается pre-release (перестаёт быть «последним»), последним снова становится
+# предыдущий стабильный. Установленные копии с отозванной версией при проверке обновлений
+# предложат вернуться на него; остальные её больше не получат. Починили — выпускайте
+# следующую версию как обычно (npm run release), отозванную можно вернуть job'ом ниже с restore.
+name: Отозвать версию
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия, например 0.3.0"
+        required: true
+      restore:
+        description: "Наоборот: вернуть ранее отозванную версию"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  withdraw:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check the version
+        run: |
+          VERSION="${VERSION#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::версия должна быть вида 0.3.0"; exit 1; }
+          gh release view "v$VERSION" >/dev/null || { echo "::error::релиза v$VERSION нет"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Withdraw
+        if: ${{ !inputs.restore }}
+        run: |
+          gh release edit "v$VERSION" --prerelease --latest=false
+          # самый новый оставшийся стабильный релиз становится «последним» (на него смотрит обновление)
+          prev=$(gh release list --exclude-drafts --exclude-pre-releases --limit 50 --json tagName --jq '.[].tagName' \
+            | sed 's/^v//' | sort -V | tail -1)
+          if [ -z "$prev" ]; then echo "::warning::других стабильных релизов нет — откатываться некуда"; exit 0; fi
+          gh release edit "v$prev" --latest
+          echo "### v$VERSION отозвана, последней стала v$prev" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore
+        if: ${{ inputs.restore }}
+        run: |
+          gh release edit "v$VERSION" --prerelease=false
+          newest=$(gh release list --exclude-drafts --exclude-pre-releases --limit 50 --json tagName --jq '.[].tagName' \
+            | sed 's/^v//' | sort -V | tail -1)
+          gh release edit "v$newest" --latest
+          echo "### v$VERSION возвращена, последней стала v$newest" >> "$GITHUB_STEP_SUMMARY"
