@@ -2,8 +2,9 @@
 
 [![build](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml/badge.svg)](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Telegram](https://img.shields.io/badge/Telegram-sys__admin__expert-26A5E4?logo=telegram&logoColor=white)](https://t.me/sys_admin_expert)
 
-**Единая рабочая панель DevOps-инженера**: терминал с AI рядом, Kubernetes, Grafana/ArgoCD/GitLab во вкладках, алерты, KeePass, SSH, MikroTik и заметки — в одном нативном приложении для Linux, Windows и macOS.
+**Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, Kubernetes, базы данных, встроенная IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass, SSH и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
 
 > *English:* OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
 
@@ -21,6 +22,9 @@
 - **Строка ресурсов** внизу: CPU, load, RAM, диск — этой машины или удалённой в активной SSH-сессии.
 - **Запись сессии** в текстовый файл кнопкой ⏺.
 - **Палитра команд** `Ctrl+Shift+P`: разделы, кластеры, хосты, заметки, пароли, история команд, сниппеты с параметрами `{{имя}}`.
+- **Подсказка при наборе**, как в fish: продолжение команды серым из истории bash/zsh и блоков кода в заметках, `→` — принять.
+- **Локальный ИИ** `Ctrl+Shift+K`: опишите словами, что сделать, — получите команду с учётом ваших заметок и истории. Модель Qwen2.5-Coder 1.5B на движке llama.cpp ставится из настроек по желанию (≈1,1 ГБ, установщик от неё не растёт) и работает без интернета.
+- **Подсветка** команды при наборе и вывода (ERROR/WARN, статусы подов, IP, ссылки), **панель файлов** с git-статусом, `Ctrl`+клик по пути в выводе открывает файл на строке.
 
 ### Kubernetes (в духе Lens)
 - Собственное хранилище kubeconfig (ваш `~/.kube/config` не меняется): импорт выбранных контекстов, вставка YAML, drag & drop файлов.
@@ -29,16 +33,27 @@
 - Shell, port-forward, scale, restart, delete; Helm-релизы (values, история, rollback) и Argo CD Applications (sync/refresh).
 - Режим **«только чтение»** для продовых контекстов — изменения блокирует бэкенд.
 
+### Базы данных
+- PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB: подключение по адресу и порту, пароль из keyring или KeePass, TLS.
+- Дерево структуры (базы → схемы → таблицы → колонки и индексы), редактор запросов с историей, таблица результатов, копирование в CSV/JSON.
+- Режим **«только чтение»** для прод-баз: PostgreSQL и ClickHouse запрещают запись на стороне сервера.
+
+### IDE и git
+- Редактор с подсветкой (Terraform/HCL, YAML, JSON, TS/JS, Python, Go, Rust, SQL, Shell, Dockerfile…), свои иконки файлов, дерево проекта.
+- Ошибки YAML/JSON/Terraform прямо в коде, `terraform fmt` при сохранении.
+- Панель git: граф коммитов всех веток, диффы, ветки (переключить, создать, слить, удалить), fetch/pull/push, коммит. Мини-консоль в папке проекта.
+
 ### Веб-панели и алерты
 - Grafana, ArgoCD, GitLab и любые сайты — **вкладками внутри окна** с автоматическим входом (пароль из keyring или KeePass).
 - **Алерты** 🔔: OpsDeck сам опрашивает Grafana Alerting, Prometheus Alertmanager и JSON-ленты ваших AI-анализаторов — на машину ничего не нужно пробрасывать. Уведомления на рабочем столе, история, ссылки на панели/silence, разбор алерта в AI.
 - **Свой AI-анализатор** логов и алертов может присылать находки на `127.0.0.1` по токену — в приложении есть готовая инструкция и пример `curl`.
 
 ### Остальное
-- **KeePass** (.kdbx): только чтение, база лишь в памяти, автоблокировка; пароли копируются с автоочисткой буфера и служат источником для всех разделов.
+- **KeePass** (.kdbx): только чтение, база лишь в памяти; остаётся открытой до закрытия OpsDeck (или автоблокировка) и сама подтягивает изменения файла. Пароли копируются с автоочисткой буфера и служат источником для всех разделов.
 - **SSH**: профили (ключ, jump-хост, пароль из KeePass) и хосты из `~/.ssh/config`.
 - **MikroTik**: WinBox и SSH в один клик.
-- **Заметки**: дерево папок, поиск, редактор Markdown (работает с Obsidian vault).
+- **Заметки**: несколько хранилищ (свои или Obsidian vault), дерево папок с перетаскиванием, теги, поиск, редактор Markdown.
+- **Задачи и напоминания**: задачи строками в заметках (формат Obsidian Tasks), общий список по срокам, календарь, всплывающие напоминания с «отложить».
 - **Сеть и DNS**: ping, mtr, traceroute, dig, nslookup; скан портов хоста (открыт/закрыт/фильтруется и что отвечает) и список портов, которые слушает эта машина, с процессами.
 
 В каждом разделе есть кнопка **!** — встроенная подсказка: как работает, что где нажимать, горячие клавиши.
@@ -158,6 +173,11 @@ src-tauri/src/        бэкенд на Rust
 ## Участие
 
 [Issues](https://github.com/LeoAlecksey/opsdeck/issues) и pull requests приветствуются. Перед PR: `npx tsc` в корне и `cargo check` в `src-tauri` должны проходить без ошибок.
+
+## Автор и поддержка
+
+- Telegram-канал автора: [@sys_admin_expert](https://t.me/sys_admin_expert)
+- Если OpsDeck пригодился — можно [поддержать проект](https://yoomoney.ru/to/4100119645604976) (ЮMoney). Спасибо!
 
 ## Лицензия
 
