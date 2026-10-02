@@ -78,9 +78,9 @@ pub fn settings_set(settings: Settings) -> Result<(), String> {
 
 #[derive(Serialize, Default)]
 pub struct Detected {
-    keepass: Vec<String>,
-    obsidian: Vec<String>,
-    winbox: Vec<String>,
+    pub keepass: Vec<String>,
+    pub obsidian: Vec<String>,
+    pub winbox: Vec<String>,
 }
 
 /// Shallow scan of $HOME (depth 4, skipping hidden dirs and heavy trees).

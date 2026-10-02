@@ -5,6 +5,11 @@ import DOMPurify from "dompurify";
 import { listen } from "@tauri-apps/api/event";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
+import { fileIcon, folderIcon } from "./fileicons";
+import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
+
+type VaultEntry = { name: string; path: string; exists: boolean; obsidian: boolean; found: boolean };
+type TagInfo = { tag: string; notes: string[] };
 
 type Note = { path: string; mtime: number };
 type Vault = { root: string; name: string; notes: Note[]; folders?: string[] };
@@ -20,13 +25,14 @@ export function mountNotes(root: HTMLElement) {
   root.classList.add("notes");
   root.innerHTML = `
     <aside class="notes-side">
-      <div class="side-head"><span class="vault-name">Заметки</span>
+      <div class="side-head"><button class="ghost vault-btn" data-a="vaults" title="Хранилища: переключить, создать новое, открыть папку"><span class="vault-name">Заметки</span> ▾</button>
         <span class="row">
           <button class="icon" data-a="daily" title="Заметка на сегодня">📅</button>
           <button class="icon" data-a="new" title="Новая заметка">＋</button>
           <button class="icon" data-a="collapse" title="Свернуть все папки">⊟</button>
           <button class="icon" data-a="reload" title="Обновить">↻</button>
         </span></div>
+      <div class="vault-menu" hidden></div>
       <input class="notes-q" placeholder="поиск по заметкам…" spellcheck="false" />
       <div class="notes-list"></div>
     </aside>
@@ -34,12 +40,14 @@ export function mountNotes(root: HTMLElement) {
       <div class="notes-bar">
         <strong class="note-path muted">выберите заметку</strong><span class="dirty" hidden>●</span>
         <span class="spacer"></span>
+        <button class="ghost" data-a="task" disabled title="Вставить задачу: срок, напоминание, приоритет, теги">＋ Задача</button>
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
         <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос Claude Code">@ Claude</button>
         <button data-a="save" title="Ctrl+S" disabled>Сохранить</button>
         ${helpBtn("notes")}
         <button class="ghost" data-a="obsidian" disabled title="Открыть эту заметку в приложении Obsidian">Obsidian ↗</button>
       </div>
+      <div class="note-tags" hidden></div>
       <textarea class="note-editor" spellcheck="false" hidden></textarea>
       <article class="note-view md" hidden></article>
     </div>`;
@@ -55,11 +63,14 @@ export function mountNotes(root: HTMLElement) {
   const dirty = () => current !== null && editor.value !== saved;
   const markDirty = () => { dirtyEl.hidden = !dirty(); saveBtn.disabled = !dirty(); };
 
+  let allTags: TagInfo[] = [];
+  let tagFilter = "";
   async function loadVault() {
     try {
       vault = await invoke<Vault>("notes_list");
       $(".vault-name").textContent = vault.name;
-      $(".vault-name").title = vault.root;
+      $(".vault-btn").title = `${vault.root}\nХранилища: переключить, создать новое, открыть папку`;
+      allTags = await invoke<TagInfo[]>("notes_tags").catch(() => []);
       drawList();
     } catch (e) {
       vault = null;
@@ -100,16 +111,16 @@ export function mountNotes(root: HTMLElement) {
   const title = (p: string) => p.split("/").pop()!.replace(/\.md$/, "");
   const noteBtn = (n: Note, depth: number, label = title(n.path)) =>
     `<button class="note-item ${n.path === current ? "active" : ""}" style="--depth:${depth}" data-p="${esc(n.path)}" title="${esc(n.path)}">
-      <span class="tree-icon">📄</span><span class="tree-label">${esc(label)}</span></button>`;
+      <span class="tree-icon">${fileIcon(n.path)}</span><span class="tree-label">${esc(label)}</span><span class="tree-more" data-more="note" title="Действия">⋯</span></button>`;
 
   function renderFolder(f: Folder, depth: number): string {
     const folders = [...f.folders.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const notes = [...f.notes].sort((a, b) => title(a.path).localeCompare(title(b.path), undefined, { numeric: true }));
     return folders.map((d) => `
       <div class="tree-dir ${openDirs.has(d.path) ? "open" : ""}" data-dir="${esc(d.path)}">
-        <button class="tree-row" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="tree-icon">📁</span>
+        <button class="tree-row" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="tree-icon">${folderIcon(d.name, openDirs.has(d.path))}</span>
           <span class="tree-label">${esc(d.name)}</span><span class="tree-count">${d.count}</span>
-          <span class="tree-add" data-add="${esc(d.path)}" title="Новая заметка в этой папке">＋</span></button>
+          <span class="tree-add" data-add="${esc(d.path)}" title="Новая заметка в этой папке">＋</span><span class="tree-more" data-more="dir" title="Действия">⋯</span></button>
         <div class="tree-children" style="--guide:${depth}">${openDirs.has(d.path) ? renderFolder(d, depth + 1) : ""}</div>
       </div>`).join("") + notes.map((n) => noteBtn(n, depth)).join("");
   }
@@ -119,6 +130,7 @@ export function mountNotes(root: HTMLElement) {
   function drawList() {
     if (!vault) return;
     if (q.value.trim().length >= 2) return search();
+    if (tagFilter) return drawTagged();
     tree = buildTree(vault.notes, vault.folders);
     const recent = [...vault.notes].sort((a, b) => b.mtime - a.mtime).slice(0, 6);
     const recentOpen = localStorage.getItem("opsdeck.notes.recent") !== "0";
@@ -127,8 +139,19 @@ export function mountNotes(root: HTMLElement) {
         <button class="tree-row" style="--depth:0"><span class="tree-caret">▸</span><span class="tree-label">Недавние</span></button>
         <div class="tree-children">${recent.map((n) => noteBtn(n, 1)).join("")}</div>
       </div>
+      ${allTags.length ? `<div class="tree-dir tree-section ${localStorage.getItem("opsdeck.notes.tagsOpen") === "1" ? "open" : ""}" data-section="tags">
+        <button class="tree-row" style="--depth:0"><span class="tree-caret">▸</span><span class="tree-label">Теги</span><span class="tree-count">${allTags.length}</span></button>
+        <div class="tree-children"><div class="side-tags">${allTags.map((t) => `<span class="tag-chip" data-tag="${esc(t.tag)}">#${esc(t.tag)} <b>${t.notes.length}</b></span>`).join("")}</div></div>
+      </div>` : ""}
       <div class="tree-sep"></div>
       ${renderFolder(tree, 0)}`;
+  }
+
+  /** Notes with the chosen tag. */
+  function drawTagged() {
+    const notes = allTags.find((t) => t.tag === tagFilter)?.notes ?? [];
+    listEl.innerHTML = `<div class="tag-filter"><span class="tag-chip on">#${esc(tagFilter)}</span><span class="muted">${notes.length} заметок</span><span class="spacer"></span><button class="icon" data-untag title="Сбросить фильтр">×</button></div>
+      ${notes.map((p) => noteBtn({ path: p, mtime: 0 }, 0, p.replace(/\.md$/, ""))).join("")}`;
   }
 
   /** Expands the folders on the way to `path` so the active note is visible in the tree. */
@@ -148,18 +171,25 @@ export function mountNotes(root: HTMLElement) {
   listEl.addEventListener("click", (e) => {
     const add = (e.target as HTMLElement).closest<HTMLElement>(".tree-add");
     if (add) { e.stopPropagation(); newNote(add.dataset.add!); return; }
+    const chip = (e.target as HTMLElement).closest<HTMLElement>(".tag-chip[data-tag]");
+    if (chip) { tagFilter = chip.dataset.tag!; drawList(); return; }
+    if ((e.target as HTMLElement).closest("[data-untag]")) { tagFilter = ""; drawList(); return; }
+    const more = (e.target as HTMLElement).closest<HTMLElement>(".tree-more");
+    if (more) { e.stopPropagation(); itemMenu(more.closest<HTMLElement>(".note-item, .tree-row")!, more.getBoundingClientRect()); return; }
     const row = (e.target as HTMLElement).closest<HTMLElement>(".tree-row");
     if (!row) return;
     const dir = row.parentElement!;
     if (dir.dataset.dir !== undefined) lastFolder = dir.dataset.dir;
-    if (dir.dataset.section === "recent") {
+    if (dir.dataset.section === "recent" || dir.dataset.section === "tags") {
       dir.classList.toggle("open");
-      localStorage.setItem("opsdeck.notes.recent", dir.classList.contains("open") ? "1" : "0");
+      localStorage.setItem(dir.dataset.section === "recent" ? "opsdeck.notes.recent" : "opsdeck.notes.tagsOpen", dir.classList.contains("open") ? "1" : "0");
       return;
     }
     const path = dir.dataset.dir!;
     const children = dir.querySelector<HTMLElement>(":scope > .tree-children")!;
-    if (dir.classList.toggle("open")) {
+    const isOpen = dir.classList.toggle("open");
+    row.querySelector(".tree-icon")!.innerHTML = folderIcon(path.split("/").pop()!, isOpen);
+    if (isOpen) {
       openDirs.add(path);
       const f = findFolder(path);
       const depth = path.split("/").length;
@@ -178,7 +208,7 @@ export function mountNotes(root: HTMLElement) {
         ${h.text ? `<span class="muted hit-text">${esc(h.text)}</span>` : ""}</button>`).join("") : `<p class="muted pad">Ничего не найдено</p>`;
   }
 
-  async function openNote(path: string) {
+  async function openNote(path: string, line?: number) {
     if (dirty() && (await ask("Несохранённые изменения", `Изменения в «${current}» будут потеряны. Продолжить?`, { ok: "Не сохранять", danger: true })) === null) return;
     try {
       const text = await invoke<string>("note_read", { path });
@@ -190,16 +220,111 @@ export function mountNotes(root: HTMLElement) {
       $(".note-path").classList.remove("muted");
       $<HTMLButtonElement>("[data-a=obsidian]").disabled = false;
       $<HTMLButtonElement>("[data-a=mention]").disabled = false;
+      $<HTMLButtonElement>("[data-a=task]").disabled = false;
+      drawNoteTags();
       const fp = fullPath(path);
       invoke("ide_editor", { editor: { uri: `file://${fp}`, filePath: fp, label: title(path), isActive: true, isDirty: false, languageId: "markdown" } }).catch(() => {});
       markDirty();
       setMode(mode);
       listEl.querySelectorAll<HTMLElement>(".note-item").forEach((b) => b.classList.toggle("active", b.dataset.p === path));
+      if (line) {
+        // jump to the line: in the editor select it, in the view scroll to the matching task
+        const lines = editor.value.split("\n");
+        const from = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
+        if (mode === "edit") {
+          editor.focus();
+          editor.setSelectionRange(from, from + (lines[line - 1]?.length ?? 0));
+          editor.scrollTop = Math.max(0, (line - 5) * parseFloat(getComputedStyle(editor).lineHeight || "20"));
+        } else {
+          const idx = taskLines().indexOf(line - 1);
+          const box = view.querySelectorAll<HTMLElement>("input[type=checkbox]")[idx];
+          box?.closest("li")?.scrollIntoView({ block: "center" });
+          box?.closest("li")?.classList.add("flash");
+        }
+      }
     } catch (e) { toast(String(e), "err"); }
   }
 
+  // ----- tags of the open note -----
+  function drawNoteTags() {
+    const bar = $(".note-tags");
+    if (!current) { bar.hidden = true; return; }
+    const { all, front } = tagsOf(editor.value);
+    bar.hidden = false;
+    bar.innerHTML = all.map((t) => `<span class="tag-chip ${front.includes(t) ? "" : "inline"}" title="${front.includes(t) ? "Тег заметки" : "Тег в тексте заметки"}">#${esc(t)}${front.includes(t) ? `<span class="tag-x" data-rm="${esc(t)}" title="Убрать тег">×</span>` : ""}</span>`).join("")
+      + `<span class="tag-add"><input class="tag-in" list="note-tag-list" placeholder="＋ тег" spellcheck="false" autocomplete="off" />
+         <datalist id="note-tag-list">${allTags.map((t) => `<option value="${esc(t.tag)}">`).join("")}</datalist></span>`;
+  }
+  $(".note-tags").addEventListener("click", (e) => {
+    const rm = (e.target as HTMLElement).closest<HTMLElement>("[data-rm]")?.dataset.rm;
+    if (!rm) return;
+    editor.value = setFrontTags(editor.value, tagsOf(editor.value).front.filter((t) => t !== rm));
+    markDirty(); save().then(refreshTags); drawNoteTags(); if (mode === "view") render();
+  });
+  $(".note-tags").addEventListener("keydown", (e) => {
+    const inp = e.target as HTMLInputElement;
+    if (!inp.classList.contains("tag-in") || (e.key !== "Enter" && e.key !== ",")) return;
+    e.preventDefault();
+    const add = inp.value.split(/[\s,]+/).map((t) => t.replace(/^#/, "").trim()).filter(Boolean);
+    if (!add.length) return;
+    const front = tagsOf(editor.value).front;
+    editor.value = setFrontTags(editor.value, [...front, ...add.filter((t) => !front.includes(t))]);
+    markDirty(); save().then(refreshTags); drawNoteTags(); if (mode === "view") render();
+    $<HTMLInputElement>(".tag-in").focus();
+  });
+  async function refreshTags() { allTags = await invoke<TagInfo[]>("notes_tags").catch(() => allTags); if (!q.value.trim()) drawList(); }
+
+  // ----- tasks inside a note -----
+  /** Line numbers (0-based) of task lines outside code blocks, in document order. */
+  function taskLines(): number[] {
+    const out: number[] = [];
+    let fence = false;
+    editor.value.split("\n").forEach((l, i) => {
+      if (l.trimStart().startsWith("```")) fence = !fence;
+      else if (!fence && /^\s*[-*+] \[[ xX]\] /.test(l)) out.push(i);
+    });
+    return out;
+  }
+  $("[data-a=task]").onclick = async () => {
+    if (!current) return;
+    const r = await taskDialog({ allTags: allTags.map((t) => t.tag) });
+    if (!r) return;
+    const lines = editor.value.split("\n");
+    // under the cursor line in the editor, otherwise at the end of the note
+    let at = lines.length;
+    if (mode === "edit") at = editor.value.slice(0, editor.selectionStart).split("\n").length;
+    else while (at > 0 && !lines[at - 1].trim()) at--;
+    lines.splice(at, 0, r.line);
+    editor.value = lines.join("\n");
+    markDirty();
+    await save();
+    if (mode === "view") render();
+    window.dispatchEvent(new Event("tasks-changed"));
+    toast(r.due ? `Задача добавлена на ${r.due}${r.time ? " " + r.time : ""}` : "Задача добавлена");
+  };
+  // checkboxes in the rendered note toggle the task in the file
+  view.addEventListener("change", async (e) => {
+    const box = e.target as HTMLInputElement;
+    if (box.type !== "checkbox") return;
+    const idx = [...view.querySelectorAll("input[type=checkbox]")].indexOf(box);
+    const ln = taskLines()[idx];
+    if (ln === undefined) return;
+    const lines = editor.value.split("\n");
+    lines[ln] = box.checked
+      ? lines[ln].replace(/\[ \]/, "[x]").replace(/\s*✅ \d{4}-\d{2}-\d{2}/, "") + ` ✅ ${ymd(new Date())}`
+      : lines[ln].replace(/\[[xX]\]/, "[ ]").replace(/\s*✅ \d{4}-\d{2}-\d{2}/, "");
+    editor.value = lines.join("\n");
+    markDirty();
+    await save();
+    window.dispatchEvent(new Event("tasks-changed"));
+  });
+
   function render() {
-    view.innerHTML = DOMPurify.sanitize(marked.parse(wikilinks(editor.value), { async: false }) as string);
+    // the front matter (tags: …) is shown as chips above the note, not as text
+    const body = editor.value.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+    view.innerHTML = DOMPurify.sanitize(marked.parse(wikilinks(body), { async: false }) as string);
+    // task checkboxes are clickable here (marked renders them disabled)
+    view.querySelectorAll<HTMLInputElement>("input[type=checkbox]").forEach((b) => { b.disabled = false; b.closest("li")?.classList.add("task-li"); });
   }
 
   function setMode(m: "edit" | "view") {
@@ -399,6 +524,149 @@ export function mountNotes(root: HTMLElement) {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   });
+  // ----- context menu on notes and folders: new note here / rename / delete -----
+  function popup(rect: { left: number; top: number; bottom: number }, items: [string, () => void, boolean?][]) {
+    document.querySelector(".ctx-menu")?.remove();
+    const m = document.createElement("div");
+    m.className = "ctx-menu";
+    m.innerHTML = items.map(([label, , danger], i) => `<div class="ctx-item ${danger ? "danger" : ""}" data-i="${i}">${esc(label)}</div>`).join("");
+    document.body.appendChild(m);
+    const x = Math.min(rect.left, window.innerWidth - m.offsetWidth - 8);
+    const y = rect.bottom + m.offsetHeight > window.innerHeight ? rect.top - m.offsetHeight : rect.bottom;
+    m.style.left = `${x}px`;
+    m.style.top = `${Math.max(4, y)}px`;
+    m.onclick = (e) => { const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i; m.remove(); if (i !== undefined) items[Number(i)][1](); };
+    setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
+  }
+
+  function itemMenu(el: HTMLElement, rect: { left: number; top: number; bottom: number }) {
+    const note = el.classList.contains("note-item") ? el.dataset.p! : null;
+    const dir = note ? null : el.parentElement?.dataset.dir ?? null;
+    const path = note ?? dir;
+    if (path === null) return;
+    const items: [string, () => void, boolean?][] = [];
+    if (dir !== null) items.push(["＋ Новая заметка здесь", () => newNote(dir)]);
+    if (note) items.push(["Открыть", () => openNote(note)]);
+    items.push(["Переименовать…", () => renameItem(path, !!note)]);
+    items.push([note ? "Удалить заметку" : "Удалить папку", () => deleteItem(path, !!note), true]);
+    popup(rect, items);
+  }
+  listEl.addEventListener("contextmenu", (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>(".note-item:not(.hit), .tree-dir[data-dir] > .tree-row");
+    if (!el) return;
+    e.preventDefault();
+    itemMenu(el, { left: e.clientX, top: e.clientY, bottom: e.clientY });
+  });
+
+  async function renameItem(path: string, isNote: boolean) {
+    const old = path.split("/").pop()!.replace(/\.md$/, "");
+    const name = (await ask("Переименовать", isNote ? "Новое имя заметки:" : "Новое имя папки:", { input: old, ok: "Переименовать" }))?.trim().replace(/\//g, "-");
+    if (!name || name === old) return;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    const dest = parent + name + (isNote ? ".md" : "");
+    try {
+      await invoke("note_move", { from: path, to: dest });
+      if (current === path) current = dest;
+      else if (!isNote && current?.startsWith(path + "/")) current = dest + current.slice(path.length);
+      if (current) $(".note-path").textContent = current.replace(/\.md$/, "");
+      await loadVault();
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  async function deleteItem(path: string, isNote: boolean) {
+    const count = isNote ? 0 : (vault?.notes.filter((n) => n.path.startsWith(path + "/")).length ?? 0);
+    const msg = isNote
+      ? `Удалить заметку «${path.replace(/\.md$/, "")}»? Она переедет в корзину хранилища (.trash) — оттуда её можно вернуть.`
+      : `Удалить папку «${path}»${count ? ` и ${count} заметок в ней` : ""}? Всё переедет в корзину хранилища (.trash).`;
+    if ((await ask(isNote ? "Удалить заметку" : "Удалить папку", msg, { ok: "Удалить", danger: true })) === null) return;
+    try {
+      await invoke<string>("note_delete", { path });
+      if (current && (current === path || current.startsWith(path + "/"))) {
+        current = null;
+        saved = editor.value = "";
+        editor.hidden = view.hidden = true;
+        $(".note-path").textContent = "выберите заметку";
+        $(".note-path").classList.add("muted");
+        $(".note-tags").hidden = true;
+        ["obsidian", "mention", "task"].forEach((a) => ($<HTMLButtonElement>(`[data-a=${a}]`).disabled = true));
+        markDirty();
+      }
+      toast("Перемещено в корзину хранилища (.trash)");
+      await loadVault();
+      window.dispatchEvent(new Event("tasks-changed"));
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  // ----- vaults: switch / create / open a folder -----
+  async function vaultMenu() {
+    const box = $(".vault-menu");
+    if (!box.hidden) { box.hidden = true; return; }
+    const v = await invoke<{ active: string; vaults: VaultEntry[] }>("vaults_list").catch((e) => { toast(String(e), "err"); return null; });
+    if (!v) return;
+    box.hidden = false;
+    box.innerHTML = `${v.vaults.map((x) => `
+      <div class="vault-item ${x.path === v.active ? "active" : ""} ${x.exists ? "" : "missing"}" data-v="${esc(x.path)}" title="${esc(x.path)}">
+        <span class="vault-mark">${x.path === v.active ? "●" : ""}</span><span class="tree-label">${esc(x.name)}</span>
+        ${x.obsidian ? `<span class="vault-badge">Obsidian</span>` : ""}${x.found ? `<span class="vault-badge found">найдено</span>` : ""}${x.exists ? "" : `<span class="vault-badge">нет папки</span>`}
+        ${x.path !== v.active && !x.found ? `<span class="vault-x" data-forget="${esc(x.path)}" title="Убрать из списка (папка останется)">×</span>` : ""}
+      </div>`).join("")}
+      <div class="vault-act" data-va="create">＋ Создать хранилище…</div>
+      <div class="vault-act" data-va="open">📂 Открыть папку как хранилище…</div>`;
+  }
+  $("[data-a=vaults]").onclick = vaultMenu;
+  const switched = async () => {
+    current = null;
+    saved = editor.value = "";
+    editor.hidden = view.hidden = true;
+    $(".note-path").textContent = "выберите заметку";
+    $(".note-tags").hidden = true;
+    tagFilter = "";
+    $(".vault-menu").hidden = true;
+    window.dispatchEvent(new Event("settings-changed"));
+    await loadVault();
+    window.dispatchEvent(new Event("tasks-changed"));
+  };
+  $(".vault-menu").addEventListener("click", async (e) => {
+    const el = e.target as HTMLElement;
+    const forget = el.closest<HTMLElement>("[data-forget]")?.dataset.forget;
+    if (forget) { await invoke("vault_forget", { path: forget }); $(".vault-menu").hidden = true; vaultMenu(); return; }
+    const act = el.closest<HTMLElement>("[data-va]")?.dataset.va;
+    if (dirty() && (act || el.closest("[data-v]")) && (await ask("Несохранённые изменения", `Изменения в «${current}» будут потеряны. Продолжить?`, { ok: "Не сохранять", danger: true })) === null) return;
+    try {
+      if (act === "create") {
+        const name = await ask("Новое хранилище", "Название (так будет называться папка):", { input: "Заметки", ok: "Дальше" });
+        if (!name?.trim()) return;
+        toast("Выберите, где создать папку хранилища");
+        // null = cancelled in the system dialog; undefined = no dialog available → type the path
+        const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
+        if (picked === null) return;
+        const parent = picked ?? await ask("Где создать", "Папка, внутри которой создать хранилище:", { input: "~/Documents", ok: "Создать" });
+        if (!parent) return;
+        await invoke("vault_create", { parent, name: name.trim() });
+        toast(`Хранилище «${name.trim()}» создано`);
+        return switched();
+      }
+      if (act === "open") {
+        const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
+        if (picked === null) return;
+        const dir = picked ?? await ask("Открыть хранилище", "Папка с заметками (.md) или Obsidian vault:", { input: "~/", ok: "Открыть" });
+        if (!dir) return;
+        await invoke("vault_open", { path: dir, name: null });
+        return switched();
+      }
+      const path = el.closest<HTMLElement>("[data-v]")?.dataset.v;
+      if (path) { await invoke("vault_activate", { path }); return switched(); }
+    } catch (err) { toast(String(err), "err"); }
+  });
+
+  // opened from the task list / reminders
+  window.addEventListener("open-note", (e) => {
+    const { path, line } = (e as CustomEvent<{ path: string; line?: number }>).detail;
+    openNote(path, line);
+  });
+  let tagTimer = 0;
+  editor.addEventListener("input", () => { clearTimeout(tagTimer); tagTimer = window.setTimeout(drawNoteTags, 500); });
+
   let t = 0;
   q.oninput = () => { clearTimeout(t); t = window.setTimeout(drawList, 200); };
 

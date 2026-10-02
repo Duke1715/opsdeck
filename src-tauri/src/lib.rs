@@ -17,6 +17,7 @@ mod snippets;
 mod ssh;
 mod sysmon;
 mod store;
+mod tasks;
 mod ports;
 mod pty;
 mod tools;
@@ -41,6 +42,7 @@ pub fn run() {
             diag::start_watchdog(app.handle().clone());
             log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
+            tasks::spawn_reminders(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
             alerts::load_data(&app.state::<alerts::AlertsState>());
@@ -148,6 +150,18 @@ pub fn run() {
             notes::note_read,
             notes::note_write,
             notes::note_move,
+            notes::note_delete,
+            notes::vaults_list,
+            notes::vault_open,
+            notes::vault_create,
+            notes::vault_activate,
+            notes::vault_forget,
+            notes::notes_tags,
+            tasks::tasks_list,
+            tasks::task_update,
+            tasks::task_format,
+            tasks::task_add,
+            tasks::task_snooze,
             notes::note_search,
             notes::note_open_obsidian,
             notes::note_daily,
