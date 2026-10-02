@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ShellBlocks } from "./blocks";
 import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
+import { AutoSuggest } from "./suggest";
 
 let seq = 0;
 
@@ -58,6 +59,7 @@ export class PtyTerminal {
   private fit = new FitAddon();
   private outHl = new OutputHighlighter(this.term, this.blocks);
   private inHl = new InputHighlighter(this.term, this.blocks);
+  private sugg = new AutoSuggest(this.term, this.blocks, (s) => this.send(s));
   private hl: HlPrefs = hlPrefs();
   private onHl = (e: Event) => {
     this.hl = (e as CustomEvent<HlPrefs>).detail;
@@ -87,7 +89,15 @@ export class PtyTerminal {
     }, { passive: false, capture: true });
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
     this.term.attachCustomKeyEventHandler((e) => {
+      // → / End accept the grey suggestion
+      if (this.sugg.key(e)) { e.preventDefault(); return false; }
       if (e.type !== "keydown" || !e.ctrlKey) return true;
+      // Ctrl+Space: ask the local AI for a command
+      if (e.code === "Space" && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("ai-ask", { detail: this }));
+        return false;
+      }
       // Ctrl+= / Ctrl++ bigger, Ctrl+- smaller, Ctrl+0 default (with or without Shift)
       const zoom = ({ "=": 1, "+": 1, "-": -1, "_": -1, "0": 0, ")": 0 } as Record<string, number>)[e.key];
       if (zoom !== undefined && !e.altKey) {
@@ -149,6 +159,7 @@ export class PtyTerminal {
     this.ro.disconnect();
     window.removeEventListener("term-highlight", this.onHl);
     window.removeEventListener("term-font", this.onFont);
+    this.sugg.dispose();
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });
     this.term.dispose();

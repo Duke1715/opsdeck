@@ -1,6 +1,8 @@
 use tauri::Manager;
 
+mod ai;
 mod alerts;
+mod cmdindex;
 mod code;
 mod connectors;
 mod db;
@@ -37,12 +39,14 @@ pub fn run() {
         .manage(ide::IdeState::default())
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
+        .manage(ai::AiState::default())
         .setup(|app| {
             diag::install_panic_hook();
             diag::start_watchdog(app.handle().clone());
             log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
             tasks::spawn_reminders(app.handle().clone());
+            ai::spawn_idle_stop(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
             alerts::load_data(&app.state::<alerts::AlertsState>());
@@ -135,6 +139,12 @@ pub fn run() {
             code::code_git_branches,
             code::code_git_op,
             code::pick_folder,
+            ai::ai_status,
+            ai::ai_install,
+            ai::ai_cancel,
+            ai::ai_remove,
+            ai::ai_command,
+            cmdindex::cmd_suggest,
             db::db_list,
             db::db_save,
             db::db_delete,

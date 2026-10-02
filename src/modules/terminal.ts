@@ -69,6 +69,17 @@ export function mountTerminal(root: HTMLElement) {
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
       </div>
       <div class="term-hosts"></div>
+      <div class="ai-ask" hidden>
+        <div class="aa-row"><span class="aa-icon">✦</span><input class="aa-in" placeholder="Что сделать? Например: перезапусти деплоймент api в stage — Enter" spellcheck="false" autocomplete="off" />
+          <button class="icon" data-aa="close" title="Закрыть (Esc)">×</button></div>
+        <div class="aa-out" hidden>
+          <pre class="aa-cmd"></pre>
+          <div class="aa-acts"><button class="primary" data-aa="paste" title="Вставить в терминал, не выполняя (Enter)">Вставить</button>
+            <button data-aa="run" title="Вставить и выполнить (Ctrl+Enter)">Выполнить</button>
+            <button class="ghost" data-aa="again" title="Спросить ещё раз">↻</button>
+            <span class="aa-meta muted"></span></div>
+        </div>
+      </div>
       <div class="sysbar" title="Ресурсы машины, на которой вы работаете: этой или удалённой в активной SSH-вкладке"></div>
     </div>
     <div class="splitter" hidden></div>
@@ -477,6 +488,60 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=ai-restart]").onclick = startAi;
   window.addEventListener("send-to-ai", (e) => sendToAi((e as CustomEvent<string>).detail));
   window.addEventListener("open-terminal", (e) => newTab((e as CustomEvent<OpenTerminalDetail>).detail));
+
+  // ----- Ctrl+Space: local AI turns a request in plain words into a command -----
+  const aa = $(".ai-ask"), aaIn = $<HTMLInputElement>(".aa-in"), aaOut = $(".aa-out");
+  let aaPty: PtyTerminal | null = null;
+  let aaCmd = "";
+  const aaClose = () => { aa.hidden = true; aaPty?.term.focus(); };
+  async function aaAsk() {
+    const request = aaIn.value.trim();
+    if (!request || !aaPty) return;
+    aaOut.hidden = false;
+    $(".aa-cmd").textContent = "думаю… (первый запрос загружает модель, до ~15 с)";
+    $(".aa-meta").textContent = "";
+    aaCmd = "";
+    try {
+      const recent = aaPty.blocks.blocks.slice(-10).map((b) => b.command).filter(Boolean);
+      const r = await invoke<{ command: string; from_notes: string[]; elapsed_ms: number }>("ai_command", { request, cwd: aaPty.blocks.cwd || null, recent, shell: null });
+      aaCmd = r.command;
+      $(".aa-cmd").textContent = r.command || "(пустой ответ — переформулируйте)";
+      $(".aa-meta").textContent = `${(r.elapsed_ms / 1000).toFixed(1)} с${r.from_notes.length ? ` · учтено команд из заметок и истории: ${r.from_notes.length}` : ""}`;
+      $<HTMLButtonElement>("[data-aa=paste]").focus();
+    } catch (e) {
+      const msg = String(e);
+      $(".aa-cmd").textContent = msg;
+      if (msg.includes("не установлен") || msg.includes("не скачана")) {
+        $(".aa-meta").innerHTML = `<button class="ghost" data-aa="setup">Открыть настройки ИИ</button>`;
+      }
+    }
+  }
+  window.addEventListener("ai-ask", (e) => {
+    aaPty = (e as CustomEvent<PtyTerminal>).detail;
+    show();
+    aa.hidden = false;
+    aaIn.select();
+    aaIn.focus();
+  });
+  aaIn.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") aaClose();
+    if (e.key === "Enter") { e.preventDefault(); aaAsk(); }
+  });
+  aa.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") aaClose();
+    if (e.key === "Enter" && e.ctrlKey && aaCmd) { e.preventDefault(); aaPty?.send(aaCmd + "\r"); aaClose(); }
+  });
+  aa.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLElement>("[data-aa]")?.dataset.aa;
+    if (a === "close") aaClose();
+    if (a === "again") aaAsk();
+    if (a === "setup") { aaClose(); window.dispatchEvent(new CustomEvent("show-view", { detail: "settings" })); }
+    if ((a === "paste" || a === "run") && aaCmd && aaPty) {
+      // paste goes through bracketed paste: nothing runs until Enter
+      if (a === "paste") aaPty.term.paste(aaCmd); else aaPty.send(aaCmd + "\r");
+      aaClose();
+    }
+  });
 
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;

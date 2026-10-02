@@ -1,10 +1,59 @@
 import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
-import { esc, toast } from "./ui";
+import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize } from "./pty";
+import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { listen } from "@tauri-apps/api/event";
+
+type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean };
+const gb = (b: number) => `${(b / 1073741824).toFixed(2)} ГБ`;
+
+/** Install / remove the local model, with download progress. */
+function mountAi(el: HTMLElement) {
+  const draw = async () => {
+    const st = await invoke<AiStatus>("ai_status").catch(() => null);
+    if (!st) { el.textContent = "статус недоступен"; return; }
+    const ready = st.engine && st.model;
+    el.innerHTML = !st.supported ? `<p class="muted">Для этой платформы встроенной модели пока нет.</p>` : `
+      <div class="row"><span>${ready ? `✓ Установлен${st.running ? " · модель загружена в память" : ""} · ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
+        <span class="spacer"></span>
+        ${st.installing ? `<button type="button" class="ghost" data-ai="cancel">Отменить</button>`
+          : ready ? `<button type="button" class="ghost" data-ai="remove">Удалить</button>`
+          : `<button type="button" class="primary" data-ai="install">${st.size > 0 ? "Докачать" : "Установить"}</button>`}</div>
+      <div class="upd-progress ai-prog" ${st.installing ? "" : "hidden"}><div class="upd-bar"></div></div>
+      <div class="ai-stage muted"></div>
+      <div class="muted small-path" title="Папка с движком и моделью">${esc(st.dir)}</div>`;
+  };
+  el.addEventListener("click", async (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLElement>("[data-ai]")?.dataset.ai;
+    try {
+      if (a === "install") { await invoke("ai_install"); await draw(); }
+      if (a === "cancel") await invoke("ai_cancel");
+      if (a === "remove") {
+        if ((await ask("Удалить локальный ИИ", "Удалить движок и модель (≈1,1 ГБ)? Потом их можно скачать снова.", { ok: "Удалить", danger: true })) === null) return;
+        await invoke("ai_remove");
+        await draw();
+      }
+    } catch (err) { toast(String(err), "err"); }
+  });
+  listen<{ stage: string; done: number; total: number }>("ai-progress", (e) => {
+    const p = e.payload;
+    const bar = el.querySelector<HTMLElement>(".ai-prog");
+    if (bar) { bar.hidden = false; (bar.firstElementChild as HTMLElement).style.width = p.total ? `${(100 * p.done) / p.total}%` : "5%"; }
+    const s = el.querySelector(".ai-stage");
+    if (s) s.textContent = `${p.stage === "engine" ? "Движок llama.cpp" : "Модель Qwen2.5-Coder 1.5B"}: ${(p.done / 1048576).toFixed(0)}${p.total ? ` из ${(p.total / 1048576).toFixed(0)}` : ""} МБ`;
+  });
+  listen<{ ok: boolean; error?: string }>("ai-installed", (e) => {
+    if (e.payload.ok) toast("Локальный ИИ установлен — в терминале Ctrl+Space");
+    else toast(`Локальный ИИ: ${e.payload.error}`, "err");
+    draw();
+  });
+  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "settings") draw(); });
+  draw();
+}
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
@@ -27,8 +76,13 @@ export function mountSettings(root: HTMLElement) {
         <fieldset class="hl-field"><legend>Терминал</legend>
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
+          <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
+        </fieldset>
+        <fieldset class="ai-field"><legend>Локальный ИИ</legend>
+          <div class="ai-root"></div>
+          <p class="muted hint">Модель Qwen2.5-Coder 1.5B и движок llama.cpp скачиваются отдельно (≈1,1 ГБ) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Space"}: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
         </fieldset>
         <fieldset><legend>Заметки</legend>
           <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
@@ -65,6 +119,10 @@ export function mountSettings(root: HTMLElement) {
   hlBoxes.forEach((b) => (b.onchange = () => setHlPrefs({ [b.dataset.hl!]: b.checked })));
   window.addEventListener("term-highlight", syncHl);
   syncHl();
+  const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
+  sugg.checked = suggestEnabled();
+  sugg.onchange = () => setSuggestEnabled(sugg.checked);
+  mountAi(root.querySelector<HTMLElement>(".ai-root")!);
   const fontIn = root.querySelector<HTMLInputElement>(".term-font")!;
   const syncFont = () => { fontIn.value = String(termFontSize()); };
   fontIn.onchange = () => { if (Number(fontIn.value)) setTermFontSize(Number(fontIn.value)); syncFont(); };
