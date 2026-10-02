@@ -1,5 +1,6 @@
 //! Read-only KeePass (.kdbx) access. The decrypted database lives only in memory and is dropped
 //! on lock / auto-lock. Other modules (connectors, MikroTik) take credentials from here by entry id.
+//! While unlocked, the file is watched: edits made in KeePassXC etc. are re-read with the same key.
 
 use crate::{settings, store::err};
 use keepass::{
@@ -9,8 +10,9 @@ use keepass::{
 use serde::Serialize;
 use std::{
     fs::File,
+    path::Path,
     sync::Mutex,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -22,6 +24,17 @@ struct Unlocked {
     db: Database,
     path: String,
     last_used: Instant,
+    /// kept (zeroized on drop) only to re-open the file after it changes on disk
+    key: DatabaseKey,
+    /// (mtime, size) of the file the current `db` was read from
+    stamp: Option<(SystemTime, u64)>,
+    /// consecutive failed re-reads of a changed file (it may still be being written)
+    reload_fails: u8,
+}
+
+fn file_stamp(path: &str) -> Option<(SystemTime, u64)> {
+    let m = std::fs::metadata(Path::new(path)).ok()?;
+    Some((m.modified().ok()?, m.len()))
 }
 
 #[derive(Default)]
@@ -36,6 +49,7 @@ pub struct Status {
     keyfile: String,
     entries: usize,
     lock_minutes: u64,
+    keep_open: bool,
 }
 
 #[derive(Serialize)]
@@ -63,6 +77,7 @@ fn status_of(state: &KeepassState) -> Status {
         keyfile: s.keepass_keyfile,
         entries: inner.as_ref().map_or(0, |u| visible_entries(&u.db).count()),
         lock_minutes: s.keepass_lock_minutes,
+        keep_open: s.keepass_keep_open,
     }
 }
 
@@ -142,7 +157,7 @@ pub async fn kp_unlock(state: State<'_, KeepassState>, mut password: String) -> 
     let pw = std::mem::take(&mut password);
     let p = path.clone();
     // KDF (Argon2/AES-KDF) is deliberately slow: keep it off the async runtime
-    let db = tauri::async_runtime::spawn_blocking(move || -> Result<Database, String> {
+    let (db, key) = tauri::async_runtime::spawn_blocking(move || -> Result<(Database, DatabaseKey), String> {
         let mut pw = pw;
         let mut key = DatabaseKey::new();
         if !pw.is_empty() {
@@ -154,12 +169,14 @@ pub async fn kp_unlock(state: State<'_, KeepassState>, mut password: String) -> 
             key = key.with_keyfile(&mut f).map_err(|e| format!("ключевой файл: {e}"))?;
         }
         let mut f = File::open(&p).map_err(|e| format!("{p}: {e}"))?;
-        Database::open(&mut f, key).map_err(|e| format!("не удалось открыть базу: {e}"))
+        let db = Database::open(&mut f, key.clone()).map_err(|e| format!("не удалось открыть базу: {e}"))?;
+        Ok((db, key))
     })
     .await
     .map_err(err)??;
 
-    *state.inner.lock().unwrap() = Some(Unlocked { db, path, last_used: Instant::now() });
+    let stamp = file_stamp(&path);
+    *state.inner.lock().unwrap() = Some(Unlocked { db, path, last_used: Instant::now(), key, stamp, reload_fails: 0 });
     Ok(status_of(&state))
 }
 
@@ -235,14 +252,16 @@ pub fn kp_open_external() -> Result<(), String> {
     Ok(())
 }
 
-/// Background auto-lock; started from `setup`.
+/// Background auto-lock and reload-on-change; started from `setup`.
 pub fn spawn_autolock(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(15));
+        let mut tick = tokio::time::interval(Duration::from_secs(3));
         loop {
             tick.tick().await;
-            let minutes = settings::load().keepass_lock_minutes;
-            if minutes == 0 {
+            reload_if_changed(&app).await;
+            let s = settings::load();
+            let minutes = s.keepass_lock_minutes;
+            if minutes == 0 || s.keepass_keep_open {
                 continue;
             }
             let state = app.state::<KeepassState>();
@@ -259,6 +278,62 @@ pub fn spawn_autolock(app: AppHandle) {
             }
         }
     });
+}
+
+/// The .kdbx changed on disk (saved from KeePassXC, synced, ...): read it again with the kept key.
+async fn reload_if_changed(app: &AppHandle) {
+    let state = app.state::<KeepassState>();
+    let job = {
+        let inner = state.inner.lock().unwrap();
+        let Some(u) = inner.as_ref() else { return };
+        let now = file_stamp(&u.path);
+        // missing file (moved / mid-replace) or unchanged: nothing to do
+        let Some(now) = now else { return };
+        if u.stamp == Some(now) {
+            return;
+        }
+        // let a writer finish: only re-read once the file has been quiet for a second
+        if now.0.elapsed().map_or(true, |d| d < Duration::from_secs(1)) {
+            return;
+        }
+        (u.path.clone(), u.key.clone(), now)
+    };
+    let (path, key, now) = job;
+    let p = path.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || -> Result<Database, String> {
+        let mut f = File::open(&p).map_err(err)?;
+        Database::open(&mut f, key).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(err)
+    .and_then(|r| r);
+
+    let mut inner = state.inner.lock().unwrap();
+    // locked or switched to another file meanwhile
+    let Some(u) = inner.as_mut().filter(|u| u.path == path) else { return };
+    match res {
+        Ok(db) => {
+            u.db = db;
+            u.stamp = Some(now);
+            u.reload_fails = 0;
+            drop(inner);
+            log::info!("keepass: {path} changed on disk, reloaded");
+            let _ = app.emit("kp-changed", ());
+        }
+        Err(e) => {
+            u.reload_fails += 1;
+            // a few retries for a half-written file; then keep the old copy and stop retrying this version
+            if u.reload_fails >= 3 {
+                u.stamp = Some(now);
+                u.reload_fails = 0;
+                drop(inner);
+                log::warn!("keepass: reload of {path} failed: {e}");
+                let _ = app.emit("kp-reload-failed", format!(
+                    "База KeePass изменилась, но перечитать её не удалось ({e}). Показана прежняя версия; если сменился пароль — заблокируйте и откройте заново."
+                ));
+            }
+        }
+    }
 }
 
 #[tauri::command]

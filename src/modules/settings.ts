@@ -7,7 +7,7 @@ import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize } from "./pty";
 
 type Settings = {
-  keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number;
+  keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
   obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; update_auto_check: boolean;
 };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
@@ -20,7 +20,9 @@ export function mountSettings(root: HTMLElement) {
         <fieldset><legend>KeePass</legend>
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>
           <label>Ключевой файл (необязательно) <input name="keepass_keyfile" spellcheck="false" /></label>
-          <label>Автоблокировка, минут без действий (0 — выключить) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
+          <label class="check"><input type="checkbox" name="keepass_keep_open" /> Держать базу открытой до закрытия OpsDeck (пароль вводится один раз за запуск)</label>
+          <label>Автоблокировка, минут без действий (0 — выключить; работает, если галочка выше снята) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
+          <p class="muted hint">Пока база открыта, OpsDeck следит за файлом .kdbx: изменения, сохранённые в KeePassXC или пришедшие синхронизацией, подтягиваются сами.</p>
         </fieldset>
         <fieldset class="hl-field"><legend>Терминал</legend>
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
@@ -103,6 +105,7 @@ export function mountSettings(root: HTMLElement) {
     const settings: Settings = {
       keepass_path: f("keepass_path").value.trim(), keepass_keyfile: f("keepass_keyfile").value.trim(),
       keepass_lock_minutes: Number(f("keepass_lock_minutes").value) || 0,
+      keepass_keep_open: f("keepass_keep_open").checked,
       obsidian_vault: f("obsidian_vault").value.trim(), winbox_path: f("winbox_path").value.trim(),
       k8s_include_system: f("k8s_include_system").checked,
       update_auto_check: f("update_auto_check").checked,

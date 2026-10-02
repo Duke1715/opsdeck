@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { esc, overlay, toast } from "./ui";
 import { registerProvider } from "./palette";
 
-export type KpStatus = { unlocked: boolean; path: string; keyfile: string; entries: number; lock_minutes: number };
+export type KpStatus = { unlocked: boolean; path: string; keyfile: string; entries: number; lock_minutes: number; keep_open: boolean };
 export type KpEntry = {
   id: string; title: string; username: string; url: string; group: string;
   tags: string[]; has_password: boolean; has_notes: boolean;
@@ -100,10 +100,13 @@ export function mountKeepass(root: HTMLElement) {
   root.innerHTML = `<div class="page kp"><div class="kp-body"></div></div>`;
   const body = root.querySelector<HTMLElement>(".kp-body")!;
   let selected: KpEntry | null = null;
+  /** redraws the open table in place (keeps the search text); null while locked */
+  let refresh: (() => Promise<void>) | null = null;
 
   async function render() {
     const st = await kpStatus();
     if (!st.unlocked) {
+      refresh = null;
       body.innerHTML = `<div class="kp-locked"></div>
         <div class="kp-foot"><button class="ghost" data-a="xc">Открыть в KeePassXC</button>${helpBtn("vault")}</div>`;
       unlockForm(body.querySelector<HTMLElement>(".kp-locked")!, st, render);
@@ -125,7 +128,7 @@ export function mountKeepass(root: HTMLElement) {
         <aside class="kp-detail" hidden></aside>
       </div>`;
     body.querySelector(".small-note")!.textContent =
-      `${st.entries} записей · только чтение · автоблокировка ${st.lock_minutes ? `через ${st.lock_minutes} мин` : "выключена"}`;
+      `${st.entries} записей · только чтение · ${st.keep_open ? "открыта до закрытия OpsDeck" : `автоблокировка ${st.lock_minutes ? `через ${st.lock_minutes} мин` : "выключена"}`} · изменения файла подтягиваются сами`;
     body.querySelector<HTMLElement>("[data-a=lock]")!.onclick = () => invoke("kp_lock");
     body.querySelector<HTMLElement>("[data-a=xc]")!.onclick = () => invoke("kp_open_external").catch((e) => toast(String(e), "err"));
 
@@ -155,6 +158,16 @@ export function mountKeepass(root: HTMLElement) {
     };
     let timer = 0;
     search.oninput = () => { clearTimeout(timer); timer = window.setTimeout(draw, 120); };
+    refresh = async () => {
+      const s2 = await kpStatus();
+      const note = body.querySelector(".small-note");
+      if (note) note.textContent = note.textContent!.replace(/^\d+ записей/, `${s2.entries} записей`);
+      await draw();
+      // the open card may describe an entry that changed or was deleted
+      const again = selected && entries.find((x) => x.id === selected!.id);
+      if (again) { selected = again; showDetail(again); }
+      else if (selected) { selected = null; body.querySelector<HTMLElement>(".kp-detail")!.hidden = true; }
+    };
     await draw();
     search.focus();
   }
@@ -195,6 +208,11 @@ export function mountKeepass(root: HTMLElement) {
   }
 
   listen("kp-locked", () => { selected = null; render(); });
+  listen("kp-changed", () => {
+    toast("База KeePass изменилась — список обновлён");
+    if (refresh) refresh(); else render();
+  });
+  listen<string>("kp-reload-failed", (e) => toast(e.payload, "err"));
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "vault") render(); });
   render();
 }
