@@ -6,7 +6,7 @@
 
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, Kubernetes, базы данных, встроенная IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass, SSH и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
 
-> *English:* OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
+> *English:* runs on Linux (glibc 2.35+, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11 and macOS 10.13+ (Apple Silicon: 11+). OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
 
 Стек: **Rust + [Tauri 2](https://tauri.app)** (бэкенд), TypeScript + Vite (интерфейс), [xterm.js](https://xtermjs.org) (терминал), [kube-rs](https://kube.rs) (Kubernetes).
 
@@ -63,6 +63,16 @@
 ---
 
 ## Установка
+
+### Системные требования
+
+| ОС | Версии | Примечания |
+|---|---|---|
+| **Linux** (x64, ARM64) | Ubuntu 22.04+ (Mint 21+, Pop!_OS 22.04+), Debian 12+, Fedora 36+, openSUSE Tumbleweed, Arch/Manjaro | Нужны glibc 2.35+ и WebKitGTK 4.1. **Не подходят:** Ubuntu 20.04, Debian 11, RHEL/Alma/Rocky 9 (glibc 2.34). |
+| **Windows** (x64) | Windows 10 и 11 | Нужен WebView2: в Windows 11 и обновлённой Windows 10 он уже есть, иначе установщик скачает его сам. Windows 7/8 не поддерживаются. |
+| **macOS** | Intel: 10.13 High Sierra+; Apple Silicon (M1–M4): 11 Big Sur+ | Сборки пока не подписаны — см. ниже. |
+
+Локальный ИИ (необязательный, ставится из ⚙) использует сборки [llama.cpp](https://github.com/ggml-org/llama.cpp) и может требовать систему новее; если он не запустится, остальное OpsDeck работает как обычно. Модели нужно ≈1,1 ГБ на диске и ≈1,5 ГБ свободной памяти во время работы.
 
 ### Готовые сборки
 Установщики для Linux (`.deb`, `.rpm`, `.AppImage`), Windows (`.msi`, `.exe`) и macOS (`.dmg`) публикуются в [**Releases**](https://github.com/LeoAlecksey/opsdeck/releases) и собираются GitHub Actions на каждый тег `v*` (см. [Сборка в CI](#сборка-в-ci)).
