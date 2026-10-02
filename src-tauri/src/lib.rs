@@ -212,7 +212,11 @@ pub fn run() {
         .expect("error while building OpsDeck")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                log::info!("OpsDeck exiting");
                 ide::cleanup(app);
+                ai::shutdown(app);
+                #[cfg(target_os = "linux")]
+                embed::release_layer();
             }
         });
 }

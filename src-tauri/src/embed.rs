@@ -67,6 +67,12 @@ mod gtk_layer {
         Ok(())
     }
 
+    /// On exit, while GTK is still alive: drop our handle to the layer without an unref after GTK
+    /// has torn the window down (thread-local destructors run after that and could free it twice).
+    pub fn release() {
+        LAYER.with(|l| std::mem::forget(l.borrow_mut().take()));
+    }
+
     pub fn place(wv: &webkit2gtk::WebView, r: super::Rect) {
         LAYER.with(|l| {
             let Some(fixed) = l.borrow().clone() else { return };
@@ -86,6 +92,12 @@ mod gtk_layer {
 }
 
 /// Called from `setup` (main thread).
+/// Exit: see gtk_layer::release.
+#[cfg(target_os = "linux")]
+pub fn release_layer() {
+    gtk_layer::release();
+}
+
 pub fn install(app: &AppHandle) {
     // escape hatch if the GTK re-layout misbehaves on some system
     if std::env::var_os("OPSDECK_NO_EMBED").is_some() {

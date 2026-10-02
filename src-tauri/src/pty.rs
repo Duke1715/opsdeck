@@ -197,8 +197,14 @@ pub fn pty_resize(state: State<PtyState>, id: String, cols: u16, rows: u16) -> R
 
 #[tauri::command]
 pub fn pty_kill(state: State<PtyState>, id: String) -> Result<(), String> {
-    if let Some(mut s) = state.sessions.lock().unwrap().remove(&id) {
-        let _ = s.child.kill();
+    let session = state.sessions.lock().unwrap().remove(&id);
+    // killing waits for the shell to react to SIGHUP (~200 ms): not on the UI thread
+    if let Some(mut s) = session {
+        std::thread::spawn(move || {
+            let _ = s.child.kill();
+            let _ = s.child.wait(); // reap: no zombie shells
+            drop(s);
+        });
     }
     Ok(())
 }

@@ -1153,11 +1153,30 @@ export function mountK8s(root: HTMLElement) {
 
   async function del(o: Obj) {
     const full = `${o.metadata.namespace ? o.metadata.namespace + "/" : ""}${o.metadata.name}`;
+    // already being deleted and stuck (usually its node is offline): plain delete won't help
+    const since = o.metadata.deletionTimestamp as string | undefined;
+    if (since && kind.id === "pods") {
+      const mins = Math.round((Date.now() - new Date(since).getTime()) / 60000);
+      const node = o.spec?.nodeName ? `узел ${o.spec.nodeName}` : "узел";
+      const v = await ask("Под завис в Terminating",
+        `${full} удаляется уже ${mins < 120 ? `${mins} мин` : `${Math.round(mins / 60)} ч`}: ${node} не подтверждает остановку — обычно он выключен или не на связи. ` +
+        `Можно удалить принудительно (как kubectl delete --grace-period=0 --force): объект исчезнет сразу, но если узел вернётся, контейнер может ещё поработать, пока kubelet его не уберёт. ` +
+        `Для подтверждения введите имя пода.`,
+        { input: "", placeholder: o.metadata.name, ok: "Удалить принудительно", danger: true });
+      if (v !== o.metadata.name) { if (v !== null) toast("Имя не совпало — ничего не удалено", "err"); return; }
+      invoke("k8s_delete", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name, force: true })
+        .then(() => { toast(`Удалено принудительно: ${full}`); closeDrawer(); refresh(); }, (e) => toast(String(e), "err"));
+      return;
+    }
     const v = await ask("Удаление", `Удалить ${kind.label.replace(/s$/, "")} ${full} в контексте ${ctx!.context}? Для подтверждения введите имя объекта.`,
       { input: "", placeholder: o.metadata.name, ok: "Удалить", danger: true });
     if (v !== o.metadata.name) { if (v !== null) toast("Имя не совпало — ничего не удалено", "err"); return; }
-    invoke("k8s_delete", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name })
-      .then(() => { toast(`Удалено: ${full}`); closeDrawer(); refresh(); }, (e) => toast(String(e), "err"));
+    invoke("k8s_delete", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name, force: false })
+      .then(() => {
+        toast(kind.id === "pods" ? `Удаление запущено: ${full}` : `Удалено: ${full}`);
+        closeDrawer();
+        refresh();
+      }, (e) => toast(String(e), "err"));
   }
 
   // ----- import -----

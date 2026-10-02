@@ -623,11 +623,16 @@ pub async fn k8s_delete(
     kind: String,
     namespace: Option<String>,
     name: String,
+    force: Option<bool>,
 ) -> Result<(), String> {
     ensure_writable(&ctx)?;
-    let r = with_api(&state, &ctx, &format!("delete {kind}/{name}"), &kind, namespace.as_deref(), |a| {
-        let name = name.clone();
-        async move { a.delete(&name, &DeleteParams::default()).await }
+    // force = `kubectl delete --grace-period=0 --force`: the object goes away without waiting for the
+    // kubelet (a pod stuck in Terminating on a node that is offline)
+    let dp = if force.unwrap_or(false) { DeleteParams { grace_period_seconds: Some(0), ..DeleteParams::default() } } else { DeleteParams::default() };
+    let what = format!("delete {kind}/{name}{}", if force.unwrap_or(false) { " (force)" } else { "" });
+    let r = with_api(&state, &ctx, &what, &kind, namespace.as_deref(), |a| {
+        let (name, dp) = (name.clone(), dp.clone());
+        async move { a.delete(&name, &dp).await }
     })
     .await;
     match r {

@@ -347,6 +347,15 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
+/// On app exit: Tauri does not drop managed state, so stop llama-server explicitly
+/// (otherwise it would keep running and holding ~1.5 GB after OpsDeck is closed).
+pub fn shutdown(app: &AppHandle) {
+    if let Some(mut s) = app.state::<AiState>().server.lock().unwrap().take() {
+        let _ = s.child.kill();
+        let _ = s.child.wait();
+    }
+}
+
 /// Background: stop the server after IDLE_STOP without requests.
 pub fn spawn_idle_stop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
