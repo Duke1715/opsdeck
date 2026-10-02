@@ -58,3 +58,11 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 # must match the versions tauri uses (embedded web panels reparent webviews in GTK)
 gtk = "0.18"
 webkit2gtk = "2.0"
+
+# Быстрее локальные сборки (tauri dev, cargo test): полная отладочная информация только для
+# своего кода (номера строк в трейсах остаются), зависимости — без неё; линковка заметно легче.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
