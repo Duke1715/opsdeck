@@ -1,0 +1,50 @@
+name: Ошибка
+description: Что-то работает не так, как ожидалось
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что сообщаете! Уязвимости — не сюда, а приватно: Security → Report a vulnerability.
+  - type: input
+    id: version
+    attributes:
+      label: Версия OpsDeck
+      description: ⚙ Настройки → Обновления
+      placeholder: "0.4.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: ОС
+      options: [Linux, Windows, macOS]
+    validations:
+      required: true
+  - type: input
+    id: os-details
+    attributes:
+      label: Подробнее об ОС
+      placeholder: "Ubuntu 24.04, GNOME/Wayland; .deb / AppImage"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги
+      description: Что нажать, чтобы повторить
+      placeholder: |
+        1. Раздел Kubernetes, контекст …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали и что получилось
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Журнал
+      description: ⚙ → Журнал → «Показать ошибки и зависания». Уберите адреса, имена хостов и всё чувствительное.
+      render: text

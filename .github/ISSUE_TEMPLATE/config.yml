@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Уязвимость
+    url: https://github.com/LeoAlecksey/opsdeck/security/advisories/new
+    about: Сообщить приватно, не в открытом issue
+  - name: Канал автора в Telegram
+    url: https://t.me/sys_admin_expert
+    about: Новости проекта и заметки DevOps

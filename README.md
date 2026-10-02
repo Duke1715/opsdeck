@@ -172,7 +172,7 @@ src-tauri/src/        бэкенд на Rust
 
 ## Участие
 
-[Issues](https://github.com/LeoAlecksey/opsdeck/issues) и pull requests приветствуются. Перед PR: `npx tsc` в корне и `cargo check` в `src-tauri` должны проходить без ошибок.
+[Issues](https://github.com/LeoAlecksey/opsdeck/issues) и pull requests приветствуются — как собрать, проверить и прислать изменения, написано в [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Автор и поддержка
 
