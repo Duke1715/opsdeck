@@ -22,11 +22,35 @@ function b64(s: string): Uint8Array {
   return out;
 }
 
+// ---------- font size (one for all local/SSH terminals, remembered) ----------
+
+const FONT_KEY = "opsdeck.term.fontSize";
+export const TERM_FONT_DEFAULT = 13;
+const clampFont = (n: number) => Math.min(32, Math.max(8, Math.round(n)));
+
+export function termFontSize(): number {
+  try {
+    const n = Number(localStorage.getItem(FONT_KEY));
+    return n ? clampFont(n) : TERM_FONT_DEFAULT;
+  } catch {
+    return TERM_FONT_DEFAULT;
+  }
+}
+
+/** Set an absolute size, or step it with "+1"/"-1"-style deltas via termFontStep. */
+export function setTermFontSize(n: number) {
+  const v = clampFont(n);
+  try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent("term-font", { detail: v }));
+}
+
+export const termFontStep = (d: number) => setTermFontSize(d === 0 ? TERM_FONT_DEFAULT : termFontSize() + d);
+
 /** xterm.js bound to a backend PTY running `program` (defaults to $SHELL). */
 export class PtyTerminal {
   readonly id = `pty${++seq}`;
   readonly term = new Terminal({
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, cursorBlink: true,
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: termFontSize(), cursorBlink: true,
     scrollback: 20000, theme, allowProposedApi: true, overviewRulerWidth: 8,
   });
   /** Command blocks (only populated when the shell integration is active). */
@@ -39,6 +63,10 @@ export class PtyTerminal {
     this.hl = (e as CustomEvent<HlPrefs>).detail;
     this.inHl.setEnabled(this.hl.input);
   };
+  private onFont = (e: Event) => {
+    this.term.options.fontSize = (e as CustomEvent<number>).detail;
+    this.resize();
+  };
   private unlisten: UnlistenFn[] = [];
   private ro: ResizeObserver;
   onExit?: () => void;
@@ -49,9 +77,25 @@ export class PtyTerminal {
     this.term.open(host);
     this.inHl.setEnabled(this.hl.input);
     window.addEventListener("term-highlight", this.onHl);
+    window.addEventListener("term-font", this.onFont);
+    // Ctrl+wheel: font size
+    host.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      termFontStep(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false, capture: true });
     this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
     this.term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey) return true;
+      if (e.type !== "keydown" || !e.ctrlKey) return true;
+      // Ctrl+= / Ctrl++ bigger, Ctrl+- smaller, Ctrl+0 default (with or without Shift)
+      const zoom = ({ "=": 1, "+": 1, "-": -1, "_": -1, "0": 0, ")": 0 } as Record<string, number>)[e.key];
+      if (zoom !== undefined && !e.altKey) {
+        e.preventDefault();
+        termFontStep(zoom);
+        return false;
+      }
+      if (!e.shiftKey) return true;
       const k = e.key.toUpperCase();
       // preventDefault: otherwise WebKit also runs its own copy/paste for the same keys
       // and the text lands in the terminal twice
@@ -104,6 +148,7 @@ export class PtyTerminal {
   dispose() {
     this.ro.disconnect();
     window.removeEventListener("term-highlight", this.onHl);
+    window.removeEventListener("term-font", this.onFont);
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });
     this.term.dispose();

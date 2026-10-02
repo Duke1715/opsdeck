@@ -1,7 +1,7 @@
 import { helpBtn } from "./help";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PtyTerminal, SpawnOpts } from "./pty";
+import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
@@ -57,6 +57,10 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">◫</button>
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">⊟</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">⏺</button>
+        <button class="icon" data-act="records" title="Открыть папку с записями сессий">📂</button>
+        <span class="font-ctl" title="Размер шрифта терминала: Ctrl+= / Ctrl+- / Ctrl+0, или Ctrl+колесо">
+          <button class="icon" data-act="font-down">A−</button><span class="font-size"></span><button class="icon" data-act="font-up">A+</button>
+        </span>
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
         ${helpBtn("terminal")}
@@ -458,6 +462,14 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
   $("[data-act=rec]").onclick = toggleRec;
+  $("[data-act=records]").onclick = () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); };
+  $("[data-act=font-up]").onclick = () => termFontStep(1);
+  $("[data-act=font-down]").onclick = () => termFontStep(-1);
+  const fontSizeEl = $(".font-size");
+  fontSizeEl.onclick = () => termFontStep(0);
+  const syncFont = () => { fontSizeEl.textContent = String(termFontSize()); };
+  window.addEventListener("term-font", syncFont);
+  syncFont();
   $("[data-act=files]").onclick = () => toggleFiles();
   $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
   $("[data-act=ai]").onclick = () => toggleAi();
@@ -500,6 +512,9 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Запись сессии: вкл/выкл", hint: "⏺", run: () => { show(); toggleRec(); } },
     { group: "Терминал", title: `Подсветка ввода: ${hlPrefs().input ? "выключить" : "включить"}`, hint: "цвета команды при наборе", run: () => setHlPrefs({ input: !hlPrefs().input }) },
     { group: "Терминал", title: `Подсветка вывода: ${hlPrefs().output ? "выключить" : "включить"}`, hint: "ERROR/WARN, статусы, IP, ссылки", run: () => setHlPrefs({ output: !hlPrefs().output }) },
+    { group: "Терминал", title: "Шрифт крупнее", hint: "Ctrl+=", run: () => termFontStep(1) },
+    { group: "Терминал", title: "Шрифт мельче", hint: "Ctrl+-", run: () => termFontStep(-1) },
+    { group: "Терминал", title: "Шрифт по умолчанию", hint: "Ctrl+0", run: () => termFontStep(0) },
     { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
       group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },

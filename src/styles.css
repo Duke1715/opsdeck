@@ -65,6 +65,9 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .tab .x { opacity: 0; }
 .tab:hover .x, .tab.active .x { opacity: .7; }
 .tab.active { background: var(--panel-2); color: var(--text); }
+.font-ctl { display: flex; align-items: center; gap: 1px; }
+.font-ctl .icon { font-size: 12px; padding: 2px 4px; }
+.font-size { min-width: 18px; text-align: center; font: 11px/1 system-ui; color: var(--muted); cursor: pointer; }
 .term-hosts { flex: 1; position: relative; min-height: 0; }
 .term-host, .ai-host { position: absolute; inset: 0; padding: 6px 0 0 8px; background: var(--bg); }
 .splitter { width: 4px; flex: none; cursor: col-resize; background: var(--border); }

@@ -4,6 +4,7 @@ import { esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
+import { setTermFontSize, termFontSize } from "./pty";
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number;
@@ -24,6 +25,7 @@ export function mountSettings(root: HTMLElement) {
         <fieldset class="hl-field"><legend>Терминал</legend>
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
+          <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
         </fieldset>
         <fieldset><legend>Заметки</legend>
@@ -61,6 +63,11 @@ export function mountSettings(root: HTMLElement) {
   hlBoxes.forEach((b) => (b.onchange = () => setHlPrefs({ [b.dataset.hl!]: b.checked })));
   window.addEventListener("term-highlight", syncHl);
   syncHl();
+  const fontIn = root.querySelector<HTMLInputElement>(".term-font")!;
+  const syncFont = () => { fontIn.value = String(termFontSize()); };
+  fontIn.onchange = () => { if (Number(fontIn.value)) setTermFontSize(Number(fontIn.value)); syncFont(); };
+  window.addEventListener("term-font", syncFont);
+  syncFont();
   invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
   root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-log]")?.dataset.log;
