@@ -47,7 +47,7 @@ function mountAi(el: HTMLElement) {
     if (s) s.textContent = `${p.stage === "engine" ? "Движок llama.cpp" : "Модель Qwen2.5-Coder 1.5B"}: ${(p.done / 1048576).toFixed(0)}${p.total ? ` из ${(p.total / 1048576).toFixed(0)}` : ""} МБ`;
   });
   listen<{ ok: boolean; error?: string }>("ai-installed", (e) => {
-    if (e.payload.ok) toast("Локальный ИИ установлен — в терминале Ctrl+Space");
+    if (e.payload.ok) toast("Локальный ИИ установлен — в терминале Ctrl+Shift+K или кнопка ✦ ИИ");
     else toast(`Локальный ИИ: ${e.payload.error}`, "err");
     draw();
   });
@@ -82,7 +82,7 @@ export function mountSettings(root: HTMLElement) {
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
-          <p class="muted hint">Модель Qwen2.5-Coder 1.5B и движок llama.cpp скачиваются отдельно (≈1,1 ГБ) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Space"}: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
+          <p class="muted hint">Модель Qwen2.5-Coder 1.5B и движок llama.cpp скачиваются отдельно (≈1,1 ГБ) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
         </fieldset>
         <fieldset><legend>Заметки</legend>
           <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>

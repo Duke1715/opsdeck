@@ -92,8 +92,8 @@ export class PtyTerminal {
       // → / End accept the grey suggestion
       if (this.sugg.key(e)) { e.preventDefault(); return false; }
       if (e.type !== "keydown" || !e.ctrlKey) return true;
-      // Ctrl+Space: ask the local AI for a command
-      if (e.code === "Space" && !e.shiftKey && !e.altKey) {
+      // Ctrl+Shift+K: ask the local AI for a command (by key position, so any layout works)
+      if (e.code === "KeyK" && e.shiftKey && !e.altKey) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("ai-ask", { detail: this }));
         return false;
@@ -106,7 +106,8 @@ export class PtyTerminal {
         return false;
       }
       if (!e.shiftKey) return true;
-      const k = e.key.toUpperCase();
+      // letter by key position: Ctrl+Shift+C/V work on the Russian layout too
+      const k = e.code.startsWith("Key") ? e.code.slice(3) : e.key.toUpperCase();
       // preventDefault: otherwise WebKit also runs its own copy/paste for the same keys
       // and the text lands in the terminal twice
       if (k === "C" && this.term.hasSelection()) {

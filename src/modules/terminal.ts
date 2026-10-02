@@ -64,6 +64,7 @@ export function mountTerminal(root: HTMLElement) {
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
         ${helpBtn("terminal")}
+        <button class="ghost" data-act="ask-ai" title="Локальный ИИ: опишите словами, что сделать, — получите команду (Ctrl+Shift+K)">✦ ИИ</button>
         <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘ Команды</button>
         <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢ в AI</button>
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
@@ -482,6 +483,7 @@ export function mountTerminal(root: HTMLElement) {
   window.addEventListener("term-font", syncFont);
   syncFont();
   $("[data-act=files]").onclick = () => toggleFiles();
+  $("[data-act=ask-ai]").onclick = () => { const p = activePane(); if (p) window.dispatchEvent(new CustomEvent("ai-ask", { detail: p.pty })); };
   $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
   $("[data-act=ai]").onclick = () => toggleAi();
   $("[data-act=send]").onclick = sendSelection;
@@ -489,7 +491,7 @@ export function mountTerminal(root: HTMLElement) {
   window.addEventListener("send-to-ai", (e) => sendToAi((e as CustomEvent<string>).detail));
   window.addEventListener("open-terminal", (e) => newTab((e as CustomEvent<OpenTerminalDetail>).detail));
 
-  // ----- Ctrl+Space: local AI turns a request in plain words into a command -----
+  // ----- Ctrl+Shift+K / ✦ ИИ: local AI turns a request in plain words into a command -----
   const aa = $(".ai-ask"), aaIn = $<HTMLInputElement>(".aa-in"), aaOut = $(".aa-out");
   let aaPty: PtyTerminal | null = null;
   let aaCmd = "";
@@ -545,7 +547,8 @@ export function mountTerminal(root: HTMLElement) {
 
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;
-    const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    // letters by key position, so the shortcuts also work on the Russian layout
+    const k = e.code.startsWith("Key") ? e.code.slice(3) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
     const p = activePane();
     if (k === "T") newTab();
     else if (k === "W" && p) closePane(p);
@@ -554,6 +557,7 @@ export function mountTerminal(root: HTMLElement) {
     else if (k === "I") toggleAi();
     else if (k === "B") toggleFiles();
     else if (k === "A") sendSelection();
+    else if (k === "K" && p) window.dispatchEvent(new CustomEvent("ai-ask", { detail: p.pty }));
     else if (k === "ArrowUp" && p) p.pty.blocks.jump(-1);
     else if (k === "ArrowDown" && p) p.pty.blocks.jump(1);
     else if (k === "ArrowRight") cyclePane(1);

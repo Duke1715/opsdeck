@@ -92,7 +92,7 @@ export async function openPalette() {
 
 // Ctrl+Shift+P everywhere (Ctrl+K is kill-line in bash, so it stays with the shell)
 window.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === "P") {
+  if (e.ctrlKey && e.shiftKey && (e.code === "KeyP" || e.key.toUpperCase() === "P")) {
     e.preventDefault();
     e.stopPropagation();
     openPalette();
