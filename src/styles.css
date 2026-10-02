@@ -603,3 +603,48 @@ p.small { font-size: 12px; margin: 0; }
 .notes-list.drop-root { outline: 1px dashed var(--accent); outline-offset: -3px; }
 .drag-ghost { position: fixed; z-index: 1000; pointer-events: none; padding: 3px 8px; border-radius: 6px; font-size: 12px;
   background: var(--panel-2); color: var(--text); border: 1px solid var(--accent); box-shadow: 0 4px 14px #0006; white-space: nowrap; }
+
+/* databases */
+.dbv { flex-direction: row; }
+.db-side { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--border); }
+.db-filter { margin: 0 10px 8px; }
+.db-tree { flex: 1; overflow: auto; font-size: 13px; padding-bottom: 12px; }
+.db-tree .tree-row { position: relative; }
+.db-conn.active > .tree-row { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+.db-leaf { --depth: 0; display: flex; align-items: center; gap: 6px; padding: 2px 10px 2px calc(26px + var(--depth) * 16px);
+  white-space: nowrap; cursor: default; }
+.db-leaf[data-q] { cursor: pointer; }
+.db-leaf:hover { background: var(--panel-2); }
+.db-detail { margin-left: auto; padding-left: 10px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.db-eng { flex: none; font: 600 9.5px/16px system-ui; min-width: 22px; text-align: center; border-radius: 4px; padding: 0 3px;
+  background: var(--panel-2); color: var(--muted); }
+.db-eng-postgres { color: #61afef; } .db-eng-mysql { color: #e6c07b; } .db-eng-clickhouse { color: #f5d76e; }
+.db-eng-redis { color: #ef5f6b; } .db-eng-mongodb { color: #98d982; }
+.db-lock { font-size: 10px; opacity: .8; }
+.db-acts { margin-left: auto; display: none; gap: 2px; }
+.db-acts span { padding: 0 4px; border-radius: 4px; color: var(--muted); }
+.db-acts span:hover { color: var(--accent); background: var(--panel); }
+.db-conn > .tree-row:hover .db-acts { display: flex; }
+.db-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.db-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.db-ro { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid #e6c07b; color: #e6c07b; }
+.db-ctx-l { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.db-ctx { width: 160px; }
+.db-hist { max-width: 220px; }
+.db-editor { height: 180px; flex: none; border: 0; border-radius: 0; resize: none; padding: 10px 14px;
+  font: 13px/1.55 "JetBrains Mono", "Fira Code", monospace; tab-size: 2; }
+.db-hsplit { height: 5px; flex: none; cursor: row-resize; background: var(--border); }
+.db-hsplit:hover { background: var(--accent); }
+.db-res { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-status { padding: 6px 12px; font-size: 12px; white-space: pre-wrap; }
+.db-status.err { color: var(--danger); }
+.db-res-tools { display: flex; gap: 6px; align-items: center; padding: 0 12px 6px; }
+.db-res-tools .seg { margin-right: auto; }
+.db-table-wrap { flex: 1; overflow: auto; }
+.db-table td { font-family: "JetBrains Mono", monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.db-table tbody tr { cursor: default; }
+.db-rownum { color: var(--muted); text-align: right; width: 1%; }
+.db-null { color: var(--muted); font-style: italic; }
+.db-json { margin: 0; padding: 10px 14px; font: 12px/1.5 "JetBrains Mono", monospace; white-space: pre; }
+dialog.db-dialog { width: 600px; }
+dialog .form-ok { margin: 0; font-size: 12px; color: #98d982; }

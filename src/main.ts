@@ -6,6 +6,7 @@ import { mountConnectors } from "./modules/connectors";
 import { mountK8s } from "./modules/k8s";
 import { mountKeepass } from "./modules/keepass";
 import { mountNotes } from "./modules/notes";
+import { mountDb } from "./modules/db";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
@@ -27,6 +28,7 @@ const svgIcon = (body: string) =>
   `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const ICON_KEY = svgIcon('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2"/>');
 const ICON_BELL = svgIcon('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>');
+const ICON_DB = svgIcon('<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>');
 const ICON_SERVER = svgIcon('<rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/>');
 
 const views: View[] = [
@@ -36,6 +38,7 @@ const views: View[] = [
   { id: "alerts", icon: "🔔", svg: ICON_BELL, title: "Алерты", mount: mountAlerts },
   { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
   { id: "ssh", icon: "🖧", svg: ICON_SERVER, title: "SSH", mount: mountSsh },
+  { id: "db", icon: "🗄", svg: ICON_DB, title: "Базы данных", mount: mountDb },
   { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
   { id: "vault", icon: "🔑", svg: ICON_KEY, title: "KeePass", mount: mountKeepass },
   { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },

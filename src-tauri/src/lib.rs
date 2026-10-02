@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod alerts;
 mod connectors;
+mod db;
 mod diag;
 mod editor;
 mod embed;
@@ -120,6 +121,12 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            db::db_list,
+            db::db_save,
+            db::db_delete,
+            db::db_test,
+            db::db_query,
+            db::db_tree,
             mikrotik::mt_list,
             mikrotik::mt_save,
             mikrotik::mt_delete,
