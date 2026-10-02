@@ -10,6 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 
 const AUTHOR_TG = "https://t.me/sys_admin_expert";
 const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
+const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean };
 const gb = (b: number) => `${(b / 1073741824).toFixed(2)} ГБ`;
@@ -114,7 +115,8 @@ export function mountSettings(root: HTMLElement) {
       <p class="muted">Конфиги: ~/.config/opsdeck/ · пароли коннекторов и роутеров — в системном keyring.</p>
       <p class="about muted">OpsDeck <span class="about-ver"></span> ·
         <a href="${AUTHOR_TG}" data-ext title="Telegram-канал автора">канал автора в Telegram</a> ·
-        <a href="${REPO_URL}" data-ext title="Исходный код, задачи и релизы">GitHub</a></p>
+        <a href="${REPO_URL}" data-ext title="Исходный код, задачи и релизы">GitHub</a> ·
+        <a href="${DONATE_URL}" data-ext title="Перевод автору через ЮMoney — по желанию">поддержать проект</a></p>
     </div>`;
 
   const form = root.querySelector("form")!;
