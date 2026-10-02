@@ -8,6 +8,9 @@ import { setTermFontSize, termFontSize } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
 import { listen } from "@tauri-apps/api/event";
 
+const AUTHOR_TG = "https://t.me/sys_admin_expert";
+const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
+
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean };
 const gb = (b: number) => `${(b / 1073741824).toFixed(2)} ГБ`;
 
@@ -109,9 +112,20 @@ export function mountSettings(root: HTMLElement) {
       </fieldset>
       <fieldset class="sn-field"><legend>Сниппеты</legend><div class="sn-root"></div></fieldset>
       <p class="muted">Конфиги: ~/.config/opsdeck/ · пароли коннекторов и роутеров — в системном keyring.</p>
+      <p class="about muted">OpsDeck <span class="about-ver"></span> ·
+        <a href="${AUTHOR_TG}" data-ext title="Telegram-канал автора">канал автора в Telegram</a> ·
+        <a href="${REPO_URL}" data-ext title="Исходный код, задачи и релизы">GitHub</a></p>
     </div>`;
 
   const form = root.querySelector("form")!;
+  invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => {});
+  // links open in the system browser / Telegram, not inside the app window
+  root.querySelector(".about")!.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-ext]");
+    if (!a) return;
+    e.preventDefault();
+    invoke("open_external", { url: a.href }).catch((err) => toast(String(err), "err"));
+  });
   mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
   mountUpdates(root.querySelector<HTMLElement>(".upd-root")!);
   const hlBoxes = root.querySelectorAll<HTMLInputElement>("[data-hl]");

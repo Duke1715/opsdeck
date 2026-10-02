@@ -868,3 +868,6 @@ dialog.task-dialog { width: 520px; }
 .aa-meta { font-size: 11.5px; margin-left: auto; }
 .ai-field .small-path { font-size: 11px; word-break: break-all; }
 .ai-stage { font-size: 12px; }
+.settings .about { font-size: 12px; margin-top: 4px; }
+.settings .about a { color: var(--muted); text-decoration: underline dotted; }
+.settings .about a:hover { color: var(--accent); }
