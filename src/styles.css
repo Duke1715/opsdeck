@@ -871,3 +871,14 @@ dialog.task-dialog { width: 520px; }
 .settings .about { font-size: 12px; margin-top: 4px; }
 .settings .about a { color: var(--muted); text-decoration: underline dotted; }
 .settings .about a:hover { color: var(--accent); }
+
+/* terminal tab bar: buttons keep their size; when it gets narrow (AI panel open) labels collapse to
+   icons, then rarely used buttons hide (they stay in the palette / hotkeys). Classes set from JS. */
+.term-main { min-width: 0; }
+.tabbar { overflow: hidden; }
+.tabbar > :not(.tabs):not(.spacer) { flex: none; white-space: nowrap; }
+.tabbar .tabs { min-width: 90px; } /* the active tab never shrinks to nothing */
+.tabbar.w1 .lbl { display: none; }
+.tabbar.w1 .ide-status { max-width: 22px; overflow: hidden; }
+.tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 .help-btn { display: none; }
+.tabbar.w3 [data-act=split-r], .tabbar.w3 [data-act=split-d], .tabbar.w3 [data-act=rec] { display: none; }

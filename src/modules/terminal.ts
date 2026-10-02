@@ -64,9 +64,9 @@ export function mountTerminal(root: HTMLElement) {
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
         ${helpBtn("terminal")}
-        <button class="ghost" data-act="ask-ai" title="Локальный ИИ: опишите словами, что сделать, — получите команду (Ctrl+Shift+K)">✦ ИИ</button>
-        <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘ Команды</button>
-        <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢ в AI</button>
+        <button class="ghost" data-act="ask-ai" title="Локальный ИИ: опишите словами, что сделать, — получите команду (Ctrl+Shift+K)">✦<span class="lbl"> ИИ</span></button>
+        <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘<span class="lbl"> Команды</span></button>
+        <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢<span class="lbl"> в AI</span></button>
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
       </div>
       <div class="term-hosts"></div>
@@ -95,6 +95,17 @@ export function mountTerminal(root: HTMLElement) {
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const tabsEl = $(".tabs"), hostsEl = $(".term-hosts"), aiPanel = $(".ai-panel"), aiHost = $(".ai-host");
+  // narrow tab bar (AI panel open, small window): collapse labels, then hide secondary buttons
+  {
+    const bar = $(".term-main > .tabbar");
+    new ResizeObserver(() => {
+      const w = bar.clientWidth;
+      if (!w) return;
+      bar.classList.toggle("w1", w < 1150);
+      bar.classList.toggle("w2", w < 800);
+      bar.classList.toggle("w3", w < 580);
+    }).observe(bar);
+  }
   // tabs that don't fit scroll horizontally with a plain wheel (the scrollbar itself is hidden)
   tabsEl.addEventListener("wheel", (e) => {
     if (tabsEl.scrollWidth <= tabsEl.clientWidth) return;
