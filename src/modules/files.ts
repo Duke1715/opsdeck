@@ -20,13 +20,18 @@ async function detectEditors(): Promise<Editor[]> {
 
 async function currentEditor(): Promise<string> {
   const saved = load("opsdeck.editor");
-  if (saved === "custom" || (saved && (await detectEditors()).some((e) => e.id === saved))) return saved;
-  return (await detectEditors())[0]?.id ?? "";
+  if (saved === "custom" || saved === "opsdeck" || (saved && (await detectEditors()).some((e) => e.id === saved))) return saved;
+  // nothing chosen yet: the built-in IDE
+  return "opsdeck";
 }
 
 /** Open a file (optionally at a line) or a folder in the chosen IDE/editor. */
 export async function openInEditor(path: string, line?: number) {
   const editor = await currentEditor();
+  if (editor === "opsdeck") {
+    window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path, line } }));
+    return;
+  }
   if (!editor) {
     toast("Не найден ни один редактор. В панели «Файлы» выберите «Своя команда…»", "err");
     return;
@@ -130,7 +135,7 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
   async function fillEditors() {
     const list = await detectEditors();
     const cur = await currentEditor();
-    sel.innerHTML = list.map((e) => `<option value="${e.id}">${esc(e.name)}${e.tui ? " (в терминале)" : ""}</option>`).join("")
+    sel.innerHTML = `<option value="opsdeck">OpsDeck IDE (встроенная)</option>` + list.map((e) => `<option value="${e.id}">${esc(e.name)}${e.tui ? " (в терминале)" : ""}</option>`).join("")
       + `<option value="custom">Своя команда…</option>`;
     sel.value = cur || "custom";
   }

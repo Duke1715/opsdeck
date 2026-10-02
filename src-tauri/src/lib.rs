@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod alerts;
+mod code;
 mod connectors;
 mod db;
 mod diag;
@@ -121,6 +122,13 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            code::code_read,
+            code::code_write,
+            code::code_create,
+            code::code_tf_fmt,
+            code::code_git_log,
+            code::code_git_diff,
+            code::code_git_show,
             db::db_list,
             db::db_save,
             db::db_delete,

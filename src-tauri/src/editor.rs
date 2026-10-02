@@ -19,7 +19,7 @@ pub struct Entry {
     size: u64,
 }
 
-fn expand(path: &str) -> PathBuf {
+pub(crate) fn expand(path: &str) -> PathBuf {
     match path.strip_prefix("~") {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => {
             dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches('/'))
