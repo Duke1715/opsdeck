@@ -710,3 +710,32 @@ dialog .form-ok { margin: 0; font-size: 12px; color: #98d982; }
 .upd-tag { font-size: 11px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--border); color: var(--muted); }
 .upd-tag.bad { color: var(--danger); border-color: var(--danger); }
 .upd-rel .small { font-size: 11px; }
+/* IDE: splitters, console, branches */
+.code-split { width: 4px; flex: none; cursor: col-resize; background: var(--border); }
+.code-split:hover, .code-split.drag, .code-hsplit:hover, .code-hsplit.drag { background: var(--accent); }
+.code-hsplit { height: 4px; flex: none; cursor: row-resize; background: var(--border); }
+.code-side { min-width: 160px; }
+.code-console { height: 220px; flex: none; display: flex; flex-direction: column; background: var(--bg); min-height: 80px; }
+.cc-head { display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 11.5px; background: var(--panel); }
+.cc-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-host { flex: 1; min-height: 0; position: relative; padding: 4px 0 0 8px; }
+.code-status button.on { color: var(--accent); }
+.code-tab.gone .label { text-decoration: line-through; opacity: .7; }
+.cg-head { gap: 6px; }
+.cg-branch-btn { padding: 2px 8px; font-weight: 600; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cg-branches { max-height: 40%; overflow: auto; border-bottom: 1px solid var(--border); font-size: 12.5px; padding-bottom: 6px; flex: none; }
+.cg-br, .cg-br-new { display: flex; align-items: center; gap: 6px; padding: 3px 12px; cursor: pointer; white-space: nowrap; }
+.cg-br:hover, .cg-br-new:hover { background: var(--panel-2); }
+.cg-br.current { color: var(--accent); cursor: default; }
+.cg-br-new { color: var(--muted); }
+.cg-br-mark { width: 10px; flex: none; font-size: 9px; }
+.cg-br-track { font: 10.5px "JetBrains Mono", monospace; color: #e6c07b; }
+.cg-br-time { margin-left: auto; font-size: 10.5px; }
+.cg-br-acts { display: none; gap: 2px; }
+.cg-br:hover .cg-br-acts { display: flex; }
+.cg-br-acts span { padding: 0 5px; border-radius: 4px; color: var(--muted); }
+.cg-br-acts span:hover { color: var(--accent); background: var(--panel); }
+.cg-remotes summary { padding: 4px 12px; color: var(--muted); cursor: pointer; }
+.cg-commit-box { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px 8px; flex: none; }
+.cg-msg-in { resize: vertical; min-height: 40px; font: 12px/1.4 system-ui; }
+.cg-commit-box button { align-self: flex-end; }

@@ -4,6 +4,8 @@ import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
+import { PtyTerminal } from "./pty";
+import { attachPathLinks } from "./files";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -32,6 +34,8 @@ import { parseAllDocuments } from "yaml";
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
 type Git = { root: string; branch: string; files: Record<string, string> };
 type Commit = { hash: string; parents: string[]; refs: string[]; author: string; time: number; subject: string };
+type Branch = { name: string; upstream: string; track: string; time: number; subject: string };
+type Branches = { current: string; local: Branch[]; remote: Branch[] };
 type FmtResult = { text: string | null; errors: { line: number; message: string }[]; tool: string };
 
 type Tab = {
@@ -54,6 +58,11 @@ const ls = {
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 const isTf = (p: string | null) => !!p && /\.(tf|tfvars|hcl)$/i.test(p);
+const shq = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
+const ago = (t: number) => {
+  const d = Date.now() / 1000 - t;
+  return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString();
+};
 
 function languageFor(path: string): { ext: Extension; name: string } {
   const name = base(path).toLowerCase();
@@ -113,7 +122,7 @@ export function mountCode(root: HTMLElement) {
     <aside class="code-side">
       <div class="side-head"><span class="code-proj" title="">Проект не открыт</span>
         <span class="row">
-          <button class="icon" data-a="open" title="Открыть папку проекта">📂</button>
+          <button class="icon" data-a="open" title="Выбрать папку проекта (весь проект откроется деревом слева)">📂</button>
           <button class="icon" data-a="from-term" title="Открыть папку, в которой сейчас терминал">⌁</button>
           <button class="icon" data-a="new-file" title="Новый файл в проекте">＋</button>
           <button class="icon" data-a="refresh" title="Обновить">↻</button>
@@ -122,22 +131,45 @@ export function mountCode(root: HTMLElement) {
       <select class="code-recent" title="Недавние проекты"><option value="">Недавние проекты…</option></select>
       <div class="code-tree"></div>
     </aside>
+    <div class="code-split" data-split="side" title="Потяните, чтобы изменить ширину"></div>
     <div class="code-main">
       <div class="code-tabs"></div>
       <div class="code-editor"></div>
       <div class="code-empty muted">Откройте папку проекта (📂) и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
+      <div class="code-hsplit" hidden title="Потяните, чтобы изменить высоту консоли"></div>
+      <div class="code-console" hidden>
+        <div class="cc-head"><span class="cc-cwd muted"></span><span class="spacer"></span>
+          <button class="icon" data-a="cc-restart" title="Перезапустить shell">↻</button>
+          <button class="icon" data-a="cc-tab" title="Открыть эту папку во вкладке терминала">⧉</button>
+          <button class="icon" data-a="console" title="Скрыть (Ctrl+\`)">×</button></div>
+        <div class="cc-host"></div>
+      </div>
       <div class="code-status">
         <span class="cs-lang"></span><span class="cs-pos"></span><span class="cs-diag"></span>
         <span class="spacer"></span>
         <span class="cs-tf muted"></span>
         <button class="ghost" data-a="fmt" hidden title="terraform fmt (Ctrl+Shift+F); при сохранении выполняется сам">fmt</button>
+        <button class="ghost" data-a="console" title="Консоль в папке проекта (Ctrl+\`)">▭ консоль</button>
         <button class="ghost" data-a="git-toggle" title="Показать/скрыть панель git">⎇ git</button>
       </div>
     </div>
+    <div class="code-split" data-split="git" hidden title="Потяните, чтобы изменить ширину"></div>
     <aside class="code-git" hidden>
-      <div class="side-head"><span class="cg-branch">git</span><button class="icon" data-a="git-refresh" title="Обновить">↻</button></div>
+      <div class="side-head cg-head">
+        <button class="ghost cg-branch-btn" data-a="branches" title="Ветки: переключить, создать, слить, удалить">⎇ <span class="cg-branch">git</span> ▾</button>
+        <span class="row">
+          <button class="icon" data-a="git-fetch" title="Получить изменения со всех remote (fetch --all --prune)">⟳</button>
+          <button class="icon" data-a="git-pull" title="Подтянуть текущую ветку (pull --ff-only)">↓</button>
+          <button class="icon" data-a="git-push" title="Отправить текущую ветку (push; новая ветка — с -u origin)">↑</button>
+          <button class="icon" data-a="git-refresh" title="Обновить">↻</button>
+        </span></div>
+      <div class="cg-branches" hidden></div>
       <div class="side-head small">Изменения</div>
       <div class="cg-changes"></div>
+      <div class="cg-commit-box">
+        <textarea class="cg-msg-in" rows="2" spellcheck="false" placeholder="Сообщение коммита… Ctrl+Enter — закоммитить всё"></textarea>
+        <button data-a="git-commit" title="git add -A и commit">Закоммитить всё</button>
+      </div>
       <div class="side-head small">История</div>
       <div class="cg-graph"></div>
     </aside>`;
@@ -405,6 +437,8 @@ export function mountCode(root: HTMLElement) {
     listing.clear();
     await loadTree();
     if (!gitPanel.hidden) drawGit();
+    // the console follows the project
+    if (con) { con.send(`cd -- ${shq(project)}\r`); $(".cc-cwd").textContent = project; }
   }
   function fillRecent() {
     const recent = JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[];
@@ -413,6 +447,10 @@ export function mountCode(root: HTMLElement) {
   recentSel.onchange = () => { if (recentSel.value) setProject(recentSel.value); recentSel.value = ""; };
 
   $("[data-a=open]").onclick = async () => {
+    // native folder picker; typing a path stays available if the dialog can't open
+    const picked = await invoke<string | null>("pick_folder", { start: project || null }).catch(() => undefined);
+    if (picked) return setProject(picked);
+    if (picked === null) return; // cancelled
     const dir = await ask("Открыть проект", "Папка проекта:", { input: project || "~/", ok: "Открыть" });
     if (dir) setProject(dir.trim());
   };
@@ -445,7 +483,8 @@ export function mountCode(root: HTMLElement) {
   }
 
   function drawChanges() {
-    $(".cg-branch").textContent = git.root ? `⎇ ${git.branch || "detached"}` : "не git-репозиторий";
+    $(".cg-branch").textContent = git.root ? git.branch || "detached" : "не git-репозиторий";
+    $(".cg-commit-box").hidden = !git.root || !Object.keys(git.files).length;
     const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
     $(".cg-changes").innerHTML = !git.root ? "" : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
@@ -530,8 +569,183 @@ export function mountCode(root: HTMLElement) {
     const text = await invoke<string>("code_git_show", { root: git.root, hash: h }).catch((x) => String(x));
     openReadonly(`git:${h}`, h.slice(0, 7), text);
   });
+  // ----- branches, sync, commit -----
+  const anyDirty = () => tabs.some(isDirty);
+  async function gitOp(op: string, args: Record<string, unknown> = {}, label = op): Promise<boolean> {
+    if (!git.root) { toast("Это не git-репозиторий", "err"); return false; }
+    if (["switch", "merge", "pull"].includes(op) && anyDirty()) {
+      if ((await ask("Несохранённые файлы", "Есть несохранённые правки в редакторе. Git поменяет файлы на диске — сначала сохраните их. Продолжить без сохранения?", { ok: "Продолжить", danger: true })) === null) return false;
+    }
+    const busy = root.querySelectorAll<HTMLButtonElement>(".code-git button");
+    busy.forEach((b) => (b.disabled = true));
+    try {
+      const out = await invoke<string>("code_git_op", { root: git.root, op, name: null, from: null, message: null, force: null, ...args });
+      toast(`${label}: ${out.split("\n").filter(Boolean).slice(-2).join(" · ") || "готово"}`);
+      return true;
+    } catch (e) {
+      toast(`${label}: ${String(e).split("\n").slice(0, 4).join(" ")}`, "err");
+      return false;
+    } finally {
+      busy.forEach((b) => (b.disabled = false));
+      await afterGitChange();
+    }
+  }
+
+  /** Files may have changed on disk (switch, pull, merge): refresh tree, git panel and open tabs. */
+  async function afterGitChange() {
+    await refreshGit(false);
+    listing.clear();
+    await loadTree();
+    if (!gitPanel.hidden) drawGit();
+    if (!$(".cg-branches").hidden) drawBranches();
+    for (const t of tabs) {
+      if (!t.path) continue;
+      const r = await invoke<{ text: string; mtime: number }>("code_read", { path: t.path }).catch(() => null);
+      if (!r) { t.btn.classList.add("gone"); t.btn.title = `${t.path} — файла больше нет на диске`; continue; }
+      t.btn.classList.remove("gone");
+      if (r.text === t.saved) { t.mtime = r.mtime; continue; }
+      if (isDirty(t)) { toast(`«${t.title}» изменился на диске, а у вас несохранённые правки — при сохранении OpsDeck спросит, что оставить`, "err"); continue; }
+      const st = t === active ? view.state : t.state;
+      const next = st.update({ changes: { from: 0, to: st.doc.length, insert: r.text } }).state;
+      t.saved = r.text;
+      t.mtime = r.mtime;
+      if (t === active) { view.setState(next); t.state = next; } else t.state = next;
+      markDirty(t);
+    }
+  }
+
+  async function drawBranches() {
+    const box = $(".cg-branches");
+    if (!git.root) { box.innerHTML = ""; return; }
+    const b = await invoke<Branches>("code_git_branches", { root: git.root }).catch((e) => { box.innerHTML = `<p class="err pad">${esc(e)}</p>`; return null; });
+    if (!b) return;
+    const row = (x: Branch, remote: boolean) => {
+      const cur = !remote && x.name === b.current;
+      return `<div class="cg-br ${cur ? "current" : ""}" data-b="${esc(x.name)}" data-remote="${remote ? 1 : ""}" title="${esc(`${x.subject}\n${x.upstream ? "↔ " + x.upstream : "без upstream"}`)}">
+        <span class="cg-br-mark">${cur ? "●" : ""}</span><span class="tree-label">${esc(x.name)}</span>
+        ${x.track ? `<span class="cg-br-track">${esc(x.track.replace("ahead", "↑").replace("behind", "↓").replace(/,\s*/g, " "))}</span>` : ""}
+        <span class="cg-br-time muted">${ago(x.time)}</span>
+        ${cur ? "" : `<span class="cg-br-acts">${remote ? "" : `<span data-bo="merge" title="Слить «${esc(x.name)}» в текущую ветку">⤵</span><span data-bo="delete" title="Удалить ветку">×</span>`}</span>`}
+      </div>`;
+    };
+    box.innerHTML = `
+      <div class="cg-br-new" data-bo="create">＋ Новая ветка от «${esc(b.current || "HEAD")}»</div>
+      ${b.local.map((x) => row(x, false)).join("")}
+      ${b.remote.length ? `<details class="cg-remotes"><summary>Удалённые (${b.remote.length})</summary>${b.remote.map((x) => row(x, true)).join("")}</details>` : ""}`;
+  }
+
+  $(".cg-branches").addEventListener("click", async (e) => {
+    const t = e.target as HTMLElement;
+    const act = t.closest<HTMLElement>("[data-bo]")?.dataset.bo;
+    const rowEl = t.closest<HTMLElement>(".cg-br");
+    const name = rowEl?.dataset.b ?? "";
+    if (act === "create") {
+      const n = await ask("Новая ветка", `Имя ветки (создаётся от «${git.branch || "HEAD"}» и сразу становится текущей):`, { input: "feature/", ok: "Создать" });
+      if (n?.trim()) gitOp("create", { name: n.trim() }, "новая ветка");
+      return;
+    }
+    if (act === "merge") {
+      if ((await ask("Слить ветку", `Слить «${name}» в «${git.branch}»? (git merge --no-edit)`, { ok: "Слить" })) !== null) gitOp("merge", { name }, "merge");
+      return;
+    }
+    if (act === "delete") {
+      if ((await ask("Удалить ветку", `Удалить локальную ветку «${name}»?`, { ok: "Удалить", danger: true })) === null) return;
+      const ok = await invoke<string>("code_git_op", { root: git.root, op: "delete", name, from: null, message: null, force: false })
+        .then(() => true, async (err) => {
+          if (!String(err).includes("not fully merged")) { toast(String(err), "err"); return false; }
+          if ((await ask("Ветка не слита", `В «${name}» есть коммиты, которых нет в других ветках. Удалить всё равно (git branch -D)?`, { ok: "Удалить", danger: true })) === null) return false;
+          return gitOp("delete", { name, force: true }, "удаление");
+        });
+      if (ok) { toast(`Ветка «${name}» удалена`); afterGitChange(); }
+      return;
+    }
+    if (rowEl && !rowEl.classList.contains("current")) gitOp("switch", { name }, `переключение на ${name}`);
+  });
+  $("[data-a=branches]").onclick = () => {
+    const box = $(".cg-branches");
+    box.hidden = !box.hidden;
+    if (!box.hidden) drawBranches();
+  };
+  $("[data-a=git-fetch]").onclick = () => gitOp("fetch", {}, "fetch");
+  $("[data-a=git-pull]").onclick = () => gitOp("pull", {}, "pull");
+  $("[data-a=git-push]").onclick = () => gitOp("push", {}, "push");
+  const commit = async () => {
+    const msg = $<HTMLTextAreaElement>(".cg-msg-in").value.trim();
+    if (!msg) { toast("Напишите сообщение коммита", "err"); $(".cg-msg-in").focus(); return; }
+    if (anyDirty() && (await ask("Несохранённые файлы", "В коммит попадёт то, что сохранено на диске. Несохранённые правки в редакторе в него не войдут. Продолжить?", { ok: "Закоммитить" })) === null) return;
+    if (await gitOp("commit", { message: msg }, "commit")) $<HTMLTextAreaElement>(".cg-msg-in").value = "";
+  };
+  $("[data-a=git-commit]").onclick = commit;
+  $(".cg-msg-in").addEventListener("keydown", (e) => { if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); commit(); } });
+
+  // ----- resizable panels -----
+  function splitter(handle: HTMLElement, target: HTMLElement, prop: "width" | "height", key: string, sign: 1 | -1, min: number, max: () => number) {
+    const saved = Number(ls.get(key));
+    if (saved) target.style[prop] = `${saved}px`;
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const start = prop === "width" ? e.clientX : e.clientY;
+      const size0 = prop === "width" ? target.offsetWidth : target.offsetHeight;
+      handle.setPointerCapture(e.pointerId);
+      handle.classList.add("drag");
+      const move = (ev: PointerEvent) => {
+        const d = ((prop === "width" ? ev.clientX : ev.clientY) - start) * sign;
+        target.style[prop] = `${Math.max(min, Math.min(max(), size0 + d))}px`;
+        view.requestMeasure();
+      };
+      const up = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.classList.remove("drag");
+        ls.set(key, String(prop === "width" ? target.offsetWidth : target.offsetHeight));
+        con?.resize();
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+    });
+    // double-click: back to the default size
+    handle.addEventListener("dblclick", () => { target.style[prop] = ""; ls.set(key, ""); view.requestMeasure(); con?.resize(); });
+  }
+  const consoleEl = $(".code-console");
+  splitter($("[data-split=side]"), $(".code-side"), "width", "opsdeck.code.sideW", 1, 160, () => root.clientWidth * 0.45);
+  splitter($("[data-split=git]"), gitPanel, "width", "opsdeck.code.gitW", -1, 220, () => root.clientWidth * 0.5);
+  splitter($(".code-hsplit"), consoleEl, "height", "opsdeck.code.consoleH", -1, 80, () => root.clientHeight - 160);
+
+  // ----- mini console in the project folder -----
+  let con: PtyTerminal | null = null;
+  function startConsole() {
+    const hostEl = $(".cc-host");
+    hostEl.innerHTML = "";
+    con = new PtyTerminal(hostEl, { cwd: project || undefined });
+    attachPathLinks(con);
+    $(".cc-cwd").textContent = project || "~";
+    con.onExit = () => { $(".cc-cwd").textContent = `${project || "~"} — shell завершён, ↻ — запустить снова`; };
+  }
+  function toggleConsole(show?: boolean) {
+    const vis = show ?? consoleEl.hidden;
+    consoleEl.hidden = $(".code-hsplit").hidden = !vis;
+    $("[data-a=console]").classList.toggle("on", vis);
+    ls.set("opsdeck.code.console", vis ? "1" : "0");
+    if (vis) {
+      if (!con) startConsole();
+      requestAnimationFrame(() => { view.requestMeasure(); con?.resize(); con?.term.focus(); });
+    } else {
+      requestAnimationFrame(() => { view.requestMeasure(); view.focus(); });
+    }
+  }
+  root.querySelectorAll<HTMLElement>("[data-a=console]").forEach((b) => (b.onclick = () => toggleConsole()));
+  $("[data-a=cc-restart]").onclick = () => { con?.dispose(); con = null; startConsole(); con!.term.focus(); };
+  $("[data-a=cc-tab]").onclick = () => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { cwd: project || undefined } }));
+  // Ctrl+` (the key left of 1 on any layout) toggles the console while the IDE is shown
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || e.code !== "Backquote") return;
+    e.preventDefault();
+    toggleConsole();
+  }, true);
+
   const toggleGit = (show?: boolean) => {
     gitPanel.hidden = !(show ?? gitPanel.hidden);
+    $("[data-split=git]").hidden = gitPanel.hidden;
     ls.set("opsdeck.code.git", gitPanel.hidden ? "0" : "1");
     $("[data-a=git-toggle]").classList.toggle("on", !gitPanel.hidden);
     if (!gitPanel.hidden) refreshGit(false).then(drawGit);
@@ -548,12 +762,16 @@ export function mountCode(root: HTMLElement) {
   });
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail !== "code") return;
-    requestAnimationFrame(() => view.requestMeasure());
+    requestAnimationFrame(() => { view.requestMeasure(); con?.resize(); });
+    // the console was open last time: bring it back on the first visit
+    if (!con && consoleEl.hidden && ls.get("opsdeck.code.console") === "1") toggleConsole(true);
     refreshGit();
   });
   window.addEventListener("beforeunload", (e) => { if (tabs.some(isDirty)) e.preventDefault(); });
   registerProvider(() => [
     { group: "IDE", title: "Открыть папку проекта", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); $("[data-a=open]").click(); } },
+    { group: "IDE", title: "Консоль в папке проекта: показать/скрыть", hint: "Ctrl+`", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); toggleConsole(); } },
+    { group: "IDE", title: "Git: новая ветка", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); toggleGit(true); $(".cg-branches").hidden = false; drawBranches(); } },
     { group: "IDE", title: "Открыть в IDE папку терминала", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); $("[data-a=from-term]").click(); } },
     ...tabs.filter((t) => t.path).map((t) => ({ group: "IDE", title: t.title, hint: t.path!, run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); activate(t); } })),
   ]);
@@ -564,6 +782,7 @@ export function mountCode(root: HTMLElement) {
   fillRecent();
   activate(null);
   if (ls.get("opsdeck.code.git") === "1") toggleGit(true);
+
   loadTree().then(async () => {
     // reopen the files that were open last time
     for (const p of prevTabs) {

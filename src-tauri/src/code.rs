@@ -242,9 +242,158 @@ pub async fn code_git_show(root: String, hash: String) -> Result<String, String>
     .map_err(err)?
 }
 
+/// Native "choose folder" dialog; None when cancelled.
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle, start: Option<String>) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut d = app.dialog().file().set_title("Папка проекта");
+        if let Some(s) = start.filter(|s| !s.is_empty()) {
+            let p = expand(&s);
+            if p.is_dir() {
+                d = d.set_directory(p);
+            }
+        }
+        d.blocking_pick_folder().and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[derive(Serialize)]
+pub struct Branch {
+    name: String,
+    upstream: String,
+    /// "ahead 2, behind 1" / "gone" / ""
+    track: String,
+    time: i64,
+    subject: String,
+}
+
+#[derive(Serialize)]
+pub struct Branches {
+    current: String,
+    local: Vec<Branch>,
+    remote: Vec<Branch>,
+}
+
+#[tauri::command]
+pub async fn code_git_branches(root: String) -> Result<Branches, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = expand(&root);
+        let current = git(&dir, &["branch", "--show-current"]).unwrap_or_default().trim().to_string();
+        let list = |refs: &str| -> Result<Vec<Branch>, String> {
+            let out = git(&dir, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:unix)%1f%(subject)", refs])?;
+            Ok(out
+                .lines()
+                .filter_map(|l| {
+                    let f: Vec<&str> = l.split('\x1f').collect();
+                    (f.len() == 5 && !f[0].ends_with("/HEAD") && f[0] != "HEAD").then(|| Branch {
+                        name: f[0].to_string(),
+                        upstream: f[1].to_string(),
+                        track: f[2].to_string(),
+                        time: f[3].parse().unwrap_or(0),
+                        subject: f[4].to_string(),
+                    })
+                })
+                .collect())
+        };
+        Ok(Branches { current, local: list("refs/heads")?, remote: list("refs/remotes")? })
+    })
+    .await
+    .map_err(err)?
+}
+
+/// A branch or ref name that git accepts and that can't be mistaken for an option.
+fn valid_ref(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('-') && !name.contains("..") && !name.chars().any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
+}
+
+/// Branch / sync / commit operations. Output (stdout+stderr) is returned for the UI.
+#[tauri::command]
+pub async fn code_git_op(root: String, op: String, name: Option<String>, from: Option<String>, message: Option<String>, force: Option<bool>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = expand(&root);
+        let name = name.unwrap_or_default();
+        let need = |n: &str| if valid_ref(n) { Ok(()) } else { Err(format!("недопустимое имя ветки: «{n}»")) };
+        let run = |args: &[&str]| -> Result<String, String> {
+            let mut cmd = Command::new("git");
+            cmd.arg("-C").arg(&dir).args(args).stdin(Stdio::null()).env("GIT_TERMINAL_PROMPT", "0");
+            // never wait for a password prompt that nobody can answer
+            if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+                cmd.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+            }
+            let out = cmd.output().map_err(|e| format!("git: {e}"))?;
+            let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).trim().to_string();
+            if out.status.success() { Ok(text) } else { Err(if text.is_empty() { format!("git {} завершился с ошибкой", args[0]) } else { text }) }
+        };
+        match op.as_str() {
+            "switch" => {
+                need(&name)?;
+                // a remote branch ("origin/feature") becomes a local tracking branch
+                match name.split_once('/') {
+                    Some((remote, local)) if git(&dir, &["remote"]).unwrap_or_default().lines().any(|r| r == remote) => {
+                        if git(&dir, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{local}")]).is_ok() {
+                            run(&["switch", local])
+                        } else {
+                            run(&["switch", "--track", &name])
+                        }
+                    }
+                    _ => run(&["switch", &name]),
+                }
+            }
+            "create" => {
+                need(&name)?;
+                match from.filter(|f| !f.is_empty()) {
+                    Some(f) => {
+                        need(&f)?;
+                        run(&["switch", "-c", &name, &f])
+                    }
+                    None => run(&["switch", "-c", &name]),
+                }
+            }
+            "delete" => {
+                need(&name)?;
+                run(&["branch", if force.unwrap_or(false) { "-D" } else { "-d" }, "--", &name])
+            }
+            "merge" => {
+                need(&name)?;
+                run(&["merge", "--no-edit", &name])
+            }
+            "fetch" => run(&["fetch", "--all", "--prune"]),
+            "pull" => run(&["pull", "--ff-only"]),
+            "push" => {
+                let has_upstream = git(&dir, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).is_ok();
+                if has_upstream { run(&["push"]) } else { run(&["push", "-u", "origin", "HEAD"]) }
+            }
+            "commit" => {
+                let msg = message.unwrap_or_default();
+                if msg.trim().is_empty() {
+                    return Err("пустое сообщение коммита".into());
+                }
+                run(&["add", "-A"])?;
+                run(&["commit", "-m", msg.trim()])
+            }
+            _ => Err(format!("неизвестная операция {op}")),
+        }
+    })
+    .await
+    .map_err(err)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ref_names() {
+        assert!(valid_ref("feature/db-panel"));
+        assert!(valid_ref("origin/master"));
+        assert!(!valid_ref("-D"));
+        assert!(!valid_ref("a..b"));
+        assert!(!valid_ref("has space"));
+    }
 
     #[test]
     fn terraform_errors() {

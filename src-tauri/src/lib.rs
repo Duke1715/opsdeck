@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
@@ -129,6 +130,9 @@ pub fn run() {
             code::code_git_log,
             code::code_git_diff,
             code::code_git_show,
+            code::code_git_branches,
+            code::code_git_op,
+            code::pick_folder,
             db::db_list,
             db::db_save,
             db::db_delete,
