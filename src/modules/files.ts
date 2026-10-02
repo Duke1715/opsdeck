@@ -1,3 +1,4 @@
+import { fileIcon, folderIcon } from "./fileicons";
 import { invoke } from "@tauri-apps/api/core";
 import type { PtyTerminal } from "./pty";
 import { ask, esc, toast } from "./ui";
@@ -185,7 +186,7 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
       const p = join(dir, e.name);
       const open = e.dir && expanded.has(p);
       return `<div class="fx-row ${e.dir ? "dir" : "file"} ${gitClass(p, e.dir)}" style="--d:${depth}" data-p="${esc(p)}" data-dir="${e.dir ? 1 : 0}" title="${esc(p)}">
-          <span class="fx-caret">${e.dir ? (open ? "▾" : "▸") : ""}</span><span class="fx-ico">${e.dir ? "📁" : icon(e.name)}</span><span class="fx-name">${esc(e.name)}${e.link ? " ↪" : ""}</span>
+          <span class="fx-caret">${e.dir ? (open ? "▾" : "▸") : ""}</span><span class="fx-ico">${e.dir ? folderIcon(e.name, open) : fileIcon(e.name)}</span><span class="fx-name">${esc(e.name)}${e.link ? " ↪" : ""}</span>
           <span class="fx-acts">
             <button class="icon" data-r="ide" title="Открыть в IDE">↗</button>
             <button class="icon" data-r="paste" title="Вставить путь в терминал">⎘</button>
@@ -277,16 +278,4 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
       else setRoot(c ?? "~");
     },
   };
-}
-
-function icon(name: string): string {
-  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  if (/^(dockerfile|containerfile)/i.test(name)) return "🐳";
-  if (/^makefile$|^justfile$/i.test(name)) return "⚙";
-  const map: Record<string, string> = {
-    yaml: "📄", yml: "📄", json: "📄", toml: "📄", ini: "📄", conf: "📄", env: "🔑", tf: "🏗", hcl: "🏗",
-    md: "📝", txt: "📝", sh: "▶", bash: "▶", zsh: "▶", py: "🐍", go: "🐹", rs: "🦀", ts: "📜", js: "📜",
-    png: "🖼", jpg: "🖼", svg: "🖼", gz: "📦", zip: "📦", tar: "📦", pem: "🔑", key: "🔑", crt: "🔑", log: "🧾",
-  };
-  return map[ext] ?? "·";
 }

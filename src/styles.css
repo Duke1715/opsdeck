@@ -739,3 +739,9 @@ dialog .form-ok { margin: 0; font-size: 12px; color: #98d982; }
 .cg-commit-box { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px 8px; flex: none; }
 .cg-msg-in { resize: vertical; min-height: 40px; font: 12px/1.4 system-ui; }
 .cg-commit-box button { align-self: flex-end; }
+/* file icons */
+.fi { display: block; flex: none; }
+.ct-ico, .fx-ico { display: inline-flex; flex: none; width: 16px; height: 16px; align-items: center; justify-content: center; }
+.ct-dir:not(.open) > .ct-row .ct-ico-open, .ct-dir.open > .ct-row .ct-ico-closed { display: none; }
+.code-tab .ct-ico { margin-right: -2px; }
+.cg-file .ct-ico { margin-left: 2px; }

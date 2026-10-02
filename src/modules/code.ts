@@ -6,6 +6,7 @@ import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
 import { PtyTerminal } from "./pty";
 import { attachPathLinks } from "./files";
+import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -274,7 +275,7 @@ export function mountCode(root: HTMLElement) {
   function addTab(id: string, title: string, path: string | null, text: string, mtime: number, readonly: boolean, langOverride?: Extension): Tab {
     const btn = document.createElement("div");
     btn.className = "tab code-tab";
-    btn.innerHTML = `<span class="label"></span><span class="dot">●</span><span class="x" title="Закрыть">×</span>`;
+    btn.innerHTML = `<span class="ct-ico">${path ? fileIcon(path) : ""}</span><span class="label"></span><span class="dot">●</span><span class="x" title="Закрыть">×</span>`;
     btn.querySelector(".label")!.textContent = title;
     btn.title = path ?? title;
     tabsEl.appendChild(btn);
@@ -384,11 +385,11 @@ export function mountCode(root: HTMLElement) {
       if (e.dir) {
         const open = expanded.has(abs);
         return `<div class="ct-dir ${open ? "open" : ""}" data-p="${esc(abs)}">
-          <div class="ct-row ${st}" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="tree-label">${esc(e.name)}</span></div>
+          <div class="ct-row ${st}" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="ct-ico ct-ico-closed">${folderIcon(e.name)}</span><span class="ct-ico ct-ico-open">${folderIcon(e.name, true)}</span><span class="tree-label">${esc(e.name)}</span></div>
           <div class="ct-kids">${open ? renderDir(abs, depth + 1) : ""}</div></div>`;
       }
       return `<div class="ct-row ct-file ${st} ${active?.path === abs ? "active" : ""}" data-f="${esc(abs)}" style="--depth:${depth}" title="${esc(abs)}">
-        <span class="tree-label">${esc(e.name)}</span>${st ? `<span class="ct-st">${esc(statusOf(abs, false).trim() || "M")}</span>` : ""}</div>`;
+        <span class="ct-ico">${fileIcon(e.name)}</span><span class="tree-label">${esc(e.name)}</span>${st ? `<span class="ct-st">${esc(statusOf(abs, false).trim() || "M")}</span>` : ""}</div>`;
     }).join("") || `<div class="ct-row muted" style="--depth:${depth}">пусто</div>`;
   }
 
@@ -488,7 +489,7 @@ export function mountCode(root: HTMLElement) {
     const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
     $(".cg-changes").innerHTML = !git.root ? "" : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
-          <span class="ct-st">${esc(code.trim() || "M")}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")
+          <span class="ct-st">${esc(code.trim() || "M")}</span><span class="ct-ico">${fileIcon(f)}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")
       : `<p class="muted pad">чисто ✓</p>`;
   }
 
