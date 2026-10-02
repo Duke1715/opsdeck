@@ -15,6 +15,7 @@ import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
 import { logUi } from "./modules/ui";
+import { currentLang, startI18n } from "./i18n";
 
 // anything that blows up in the UI ends up in the log file (⚙ → Журнал)
 window.addEventListener("error", (e) => logUi("error", `JS: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}${e.error?.stack ? "\n" + e.error.stack : ""}`));
@@ -50,6 +51,10 @@ const views: View[] = [
   { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
   { id: "settings", icon: "⚙", title: "Настройки", mount: mountSettings, bottom: true },
 ];
+
+startI18n();
+// the backend translates its own notifications (reminders, alerts) the same way
+invoke("set_lang", { lang: currentLang() }).catch(() => {});
 
 const sidebar = document.getElementById("sidebar")!;
 const container = document.getElementById("views")!;

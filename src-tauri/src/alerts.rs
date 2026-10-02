@@ -312,7 +312,13 @@ fn notify(app: &AppHandle, news: &[Alert]) {
         let _ = app.notification().builder().title(format!("{icon} {}", a.name)).body(body).show();
     }
     if shown.len() > 3 {
-        let _ = app.notification().builder().title(format!("🔔 Ещё {} алертов", shown.len() - 3)).body("Откройте раздел алертов в OpsDeck").show();
+        let more = (shown.len() - 3).to_string();
+        let _ = app
+            .notification()
+            .builder()
+            .title(crate::i18n::tr("🔔 Ещё {} алертов", &[&more]))
+            .body(crate::i18n::tr("Откройте раздел алертов в OpsDeck", &[]))
+            .show();
     }
 }
 

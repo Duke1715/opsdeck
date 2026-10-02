@@ -1,4 +1,6 @@
 import { overlay } from "./ui";
+import { currentLang } from "../i18n";
+import { HELP_EN } from "./help-en";
 
 /** "!" button for a section header; opens that section's guide. */
 export const helpBtn = (id: string) => `<button type="button" class="help-btn" data-help="${id}" title="Как это работает и что где нажимать">!</button>`;
@@ -251,7 +253,8 @@ const HELP: Record<string, { title: string; html: string }> = {
   settings: {
     title: "Настройки",
     html: `
-      <ul><li><b>Порядок иконок</b> в колонке слева меняется перетаскиванием мышью и запоминается (⚙ всегда внизу).</li>
+      <ul><li><b>Язык</b>: «Как в системе» берёт язык системы; можно явно выбрать русский или английский. При смене интерфейс перезагружается.</li>
+      <li><b>Порядок иконок</b> в колонке слева меняется перетаскиванием мышью и запоминается (⚙ всегда внизу).</li>
       <li><b>Терминал</b>: подсветка ввода и вывода, размер шрифта.</li>
       <li><b>KeePass</b>: «Держать базу открытой до закрытия OpsDeck» (включено по умолчанию) или автоблокировка через N минут простоя.</li>
       <li>Пути к базе KeePass, папке с заметками и WinBox подставляются автоматически, если найдены в домашней папке (варианты — в выпадающем списке поля).</li>
@@ -265,7 +268,7 @@ const HELP: Record<string, { title: string; html: string }> = {
 };
 
 function show(id: string) {
-  const h = HELP[id];
+  const h = (currentLang() === "en" ? HELP_EN[id] : undefined) ?? HELP[id];
   if (!h) return;
   const dlg = document.createElement("dialog");
   dlg.className = "help-dialog";

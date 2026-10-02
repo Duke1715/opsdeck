@@ -9,6 +9,7 @@ mod db;
 mod diag;
 mod editor;
 mod embed;
+mod i18n;
 mod ide;
 mod k8s;
 mod keepass;
@@ -139,6 +140,7 @@ pub fn run() {
             code::code_git_branches,
             code::code_git_op,
             code::pick_folder,
+            i18n::set_lang,
             ai::ai_status,
             ai::ai_install,
             ai::ai_cancel,

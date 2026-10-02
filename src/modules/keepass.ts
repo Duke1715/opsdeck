@@ -127,8 +127,9 @@ export function mountKeepass(root: HTMLElement) {
         <div class="kp-table-wrap"><table class="res kp-table"><thead><tr><th>Название</th><th>Логин</th><th>URL</th><th>Группа</th><th></th></tr></thead><tbody></tbody></table></div>
         <aside class="kp-detail" hidden></aside>
       </div>`;
-    body.querySelector(".small-note")!.textContent =
-      `${st.entries} записей · только чтение · ${st.keep_open ? "открыта до закрытия OpsDeck" : `автоблокировка ${st.lock_minutes ? `через ${st.lock_minutes} мин` : "выключена"}`} · изменения файла подтягиваются сами`;
+    const noteText = (x: KpStatus) =>
+      `${x.entries} записей · только чтение · ${x.keep_open ? "открыта до закрытия OpsDeck" : `автоблокировка ${x.lock_minutes ? `через ${x.lock_minutes} мин` : "выключена"}`} · изменения файла подтягиваются сами`;
+    body.querySelector(".small-note")!.textContent = noteText(st);
     body.querySelector<HTMLElement>("[data-a=lock]")!.onclick = () => invoke("kp_lock");
     body.querySelector<HTMLElement>("[data-a=xc]")!.onclick = () => invoke("kp_open_external").catch((e) => toast(String(e), "err"));
 
@@ -161,7 +162,7 @@ export function mountKeepass(root: HTMLElement) {
     refresh = async () => {
       const s2 = await kpStatus();
       const note = body.querySelector(".small-note");
-      if (note) note.textContent = note.textContent!.replace(/^\d+ записей/, `${s2.entries} записей`);
+      if (note) note.textContent = noteText(s2);
       await draw();
       // the open card may describe an entry that changed or was deleted
       const again = selected && entries.find((x) => x.id === selected!.id);

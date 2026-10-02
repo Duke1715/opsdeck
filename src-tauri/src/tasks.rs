@@ -317,9 +317,9 @@ pub fn spawn_reminders(app: AppHandle) {
                 if !due_today.is_empty() || overdue > 0 {
                     let mut body: Vec<String> = due_today.iter().take(5).map(|t| format!("• {}", t.text)).collect();
                     if overdue > 0 {
-                        body.push(format!("просрочено: {overdue}"));
+                        body.push(crate::i18n::tr("просрочено: {}", &[&overdue.to_string()]));
                     }
-                    let _ = app.notification().builder().title(format!("📋 Задачи на сегодня: {}", due_today.len())).body(body.join("\n")).show();
+                    let _ = app.notification().builder().title(crate::i18n::tr("📋 Задачи на сегодня: {}", &[&due_today.len().to_string()])).body(body.join("\n")).show();
                 }
                 fired.push(digest);
                 changed = true;

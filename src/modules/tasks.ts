@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { t as tl } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
 import { registerProvider } from "./palette";
@@ -15,9 +16,9 @@ const ls = {
 
 const human = (d: string) => {
   const t = ymd(new Date());
-  if (d === t) return "сегодня";
-  if (d === ymd(addDays(new Date(), 1))) return "завтра";
-  if (d === ymd(addDays(new Date(), -1))) return "вчера";
+  if (d === t) return tl("сегодня");
+  if (d === ymd(addDays(new Date(), 1))) return tl("завтра");
+  if (d === ymd(addDays(new Date(), -1))) return tl("вчера");
   const [y, m, day] = d.split("-").map(Number);
   return new Date(y, m - 1, day).toLocaleDateString(undefined, { day: "numeric", month: "short", ...(y !== new Date().getFullYear() ? { year: "numeric" } : {}) });
 };

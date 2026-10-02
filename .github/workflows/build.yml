@@ -59,6 +59,8 @@ jobs:
       - run: npm ci
       - name: TypeScript
         run: npx tsc
+      - name: Translations (no broken words, placeholders match)
+        run: npm run i18n:check
       - name: npm audit (high+)
         run: npm audit --audit-level=high
       - uses: dtolnay/rust-toolchain@stable

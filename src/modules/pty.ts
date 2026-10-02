@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -130,14 +131,14 @@ export class PtyTerminal {
   private async start(opts: SpawnOpts) {
     this.unlisten.push(await listen<string>(`pty-data-${this.id}`, (e) => this.term.write(this.outHl.feed(b64(e.payload), this.hl.output))));
     this.unlisten.push(await listen(`pty-exit-${this.id}`, () => {
-      this.term.write("\r\n\x1b[2m[процесс завершён]\x1b[0m\r\n");
+      this.term.write(`\r\n\x1b[2m[${t("процесс завершён")}]\x1b[0m\r\n`);
       this.onExit?.();
     }));
     this.safeFit();
     try {
       await invoke("pty_spawn", { req: { id: this.id, ...opts, cols: this.term.cols, rows: this.term.rows } });
     } catch (e) {
-      this.term.write(`\x1b[31mНе удалось запустить ${opts.program ?? "shell"}: ${e}\x1b[0m\r\n`);
+      this.term.write(`\x1b[31m${t("Не удалось запустить")} ${opts.program ?? "shell"}: ${t(String(e))}\x1b[0m\r\n`);
     }
   }
 

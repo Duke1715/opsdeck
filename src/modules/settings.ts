@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { langSetting, setLang, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
@@ -69,6 +70,13 @@ export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
     <div class="page settings">
       <h2>Настройки ${helpBtn("settings")}</h2>
+      <fieldset class="lang-field" data-no-i18n><legend>Язык · Language</legend>
+        <select class="lang-sel">
+          <option value="auto">Как в системе · System</option>
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
+      </fieldset>
       <form>
         <fieldset><legend>KeePass</legend>
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>
@@ -120,6 +128,9 @@ export function mountSettings(root: HTMLElement) {
     </div>`;
 
   const form = root.querySelector("form")!;
+  const langSel = root.querySelector<HTMLSelectElement>(".lang-sel")!;
+  langSel.value = langSetting();
+  langSel.onchange = () => setLang(langSel.value as "auto" | "ru" | "en");
   invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => {});
   // links open in the system browser / Telegram, not inside the app window
   root.querySelector(".about")!.addEventListener("click", (e) => {
@@ -153,7 +164,7 @@ export function mountSettings(root: HTMLElement) {
     view.hidden = false;
     view.textContent = "загрузка…";
     const text = await invoke<string>("logs_tail", { lines: 300, onlyProblems: act === "problems" }).catch((err) => String(err));
-    view.textContent = text || (act === "problems" ? "Проблем не записано ✓" : "Журнал пуст");
+    view.textContent = text || t(act === "problems" ? "Проблем не записано ✓" : "Журнал пуст");
     view.scrollTop = view.scrollHeight;
   });
   const f = (n: keyof Settings) => form.elements.namedItem(n) as HTMLInputElement;

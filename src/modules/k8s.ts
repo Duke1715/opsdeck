@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -824,7 +825,7 @@ export function mountK8s(root: HTMLElement) {
         }</tbody></table></div>`;
         return;
       }
-      pre.textContent = (tab === "values" ? d.values : tab === "manifest" ? d.manifest : d.notes) || "(пусто)";
+      pre.textContent = (tab === "values" ? d.values : tab === "manifest" ? d.manifest : d.notes) || t("(пусто)");
     } catch (e) { pre.textContent = String(e); }
   }
 
