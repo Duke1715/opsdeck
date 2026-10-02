@@ -79,6 +79,12 @@ export function mountTerminal(root: HTMLElement) {
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const tabsEl = $(".tabs"), hostsEl = $(".term-hosts"), aiPanel = $(".ai-panel"), aiHost = $(".ai-host");
+  // tabs that don't fit scroll horizontally with a plain wheel (the scrollbar itself is hidden)
+  tabsEl.addEventListener("wheel", (e) => {
+    if (tabsEl.scrollWidth <= tabsEl.clientWidth) return;
+    e.preventDefault();
+    tabsEl.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  }, { passive: false });
   const splitter = $(".splitter"), providerSel = $<HTMLSelectElement>(".ai-provider");
 
   const tabs: Tab[] = [];
@@ -131,6 +137,7 @@ export function mountTerminal(root: HTMLElement) {
       x.host.hidden = x !== t;
       x.btn.classList.toggle("active", x === t);
     }
+    t.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
     if (t.active) focusPane(t.active);
     requestAnimationFrame(() => { t.panes.forEach((p) => p.pty.resize()); t.active?.pty.term.focus(); });
   }
