@@ -1,6 +1,6 @@
 [package]
 name = "opsdeck"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "Desktop cockpit for DevOps engineers (Tauri backend)"
 license = "MIT"
