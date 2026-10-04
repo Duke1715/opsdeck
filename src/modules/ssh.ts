@@ -235,6 +235,79 @@ export function mountSsh(root: HTMLElement) {
         }
     }
   };
+  // ----- drag a host onto another group (pointer events: HTML5 DnD is unreliable in the webview) -----
+  async function setGroup(row: HTMLElement, group: string) {
+    const h = data.hosts.find((x) => x.id === row.dataset.id);
+    const c = data.config.find((x) => x.alias === row.dataset.alias);
+    try {
+      if (h && h.group !== group) await invoke("ssh_save", { host: { ...h, group }, secret: null });
+      else if (c && c.group !== group) await invoke("ssh_config_group", { alias: c.alias, group });
+      else return;
+      if (group) { closed.delete(group); saveClosed(); }
+      toast(group ? `Перемещено в «${group}»` : "Перемещено: без группы");
+      load();
+    } catch (err) { toast(String(err), "err"); }
+  }
+
+  let dragJustEnded = false;
+  list.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagation(); e.preventDefault(); } }, true);
+  list.addEventListener("pointerdown", (e) => {
+    const t = e.target as HTMLElement;
+    const row = t.closest<HTMLElement>("tr[data-id], tr[data-alias]");
+    if (!row || e.button !== 0 || t.closest("button, input, a")) return;
+    const x0 = e.clientX, y0 = e.clientY;
+    const from = row.closest<HTMLElement>("details")?.dataset.g ?? "";
+    let ghost: HTMLElement | null = null, zone: HTMLElement | null = null, target: string | null = null;
+    const mark = (el: Element | null) => {
+      list.querySelectorAll(".drop-target").forEach((x) => x.classList.remove("drop-target"));
+      el?.classList.add("drop-target");
+    };
+    const move = (ev: PointerEvent) => {
+      if (!ghost) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        ghost = document.createElement("div");
+        ghost.className = "drag-ghost";
+        ghost.textContent = "🖧 " + (row.querySelector(".mt-name")?.childNodes[0]?.textContent?.trim() ?? "");
+        document.body.appendChild(ghost);
+        zone = document.createElement("div");
+        zone.className = "ssh-new-group";
+        zone.textContent = "＋ Новая группа";
+        list.appendChild(zone);
+        row.classList.add("dragging");
+      }
+      ghost.style.left = `${ev.clientX + 12}px`;
+      ghost.style.top = `${ev.clientY + 8}px`;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const det = el?.closest<HTMLElement>("details.ssh-group");
+      if (el && zone && zone.contains(el)) { target = "\u0001new"; mark(zone); return; }
+      if (!det) { target = null; mark(null); return; }
+      // "~/.ssh/config" and "Без группы" both mean: no group
+      const g = det.dataset.g === CFG ? "" : det.dataset.g ?? "";
+      target = det.dataset.g === from ? null : g;
+      mark(target === null ? null : det.querySelector("summary"));
+    };
+    const up = async () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (!ghost) return;
+      ghost.remove();
+      zone?.remove();
+      row.classList.remove("dragging");
+      mark(null);
+      dragJustEnded = true;
+      setTimeout(() => { dragJustEnded = false; }, 0);
+      if (target === null) return;
+      if (target === "\u0001new") {
+        const name = (await ask("Новая группа", "Имя группы:", { input: "", placeholder: "prod / стенд", ok: "Создать" }))?.trim();
+        if (!name) return;
+        target = name;
+      }
+      setGroup(row, target);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+
   filter.oninput = draw;
   root.querySelector<HTMLElement>("[data-a=add]")!.onclick = () => open(null);
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "ssh") load(); });
