@@ -106,10 +106,13 @@ export function mountAlerts(root: HTMLElement) {
         .join(" ").toLowerCase().includes(q));
   };
 
+  /** Group key, safe inside an HTML attribute (a raw "\u0000" separator was turned into "\uFFFD" by
+   *  the parser, so the buttons of a card never found their alerts). */
+  const groupKey = (a: Alert) => encodeURIComponent(groupSel.value === "none" ? a.fingerprint : `${a.source}\n${a.name}`);
   function groups(list: Alert[]): Group[] {
     const by = new Map<string, Group>();
     for (const a of list) {
-      const key = groupSel.value === "none" ? a.fingerprint : `${a.source}\u0000${a.name}`;
+      const key = groupKey(a);
       const g = by.get(key) ?? { key, source: a.source, name: a.name, items: [], newest: 0, oldest: 0 };
       g.items.push(a);
       by.set(key, g);
@@ -287,7 +290,7 @@ export function mountAlerts(root: HTMLElement) {
   const groupOf = (el: HTMLElement): Alert[] => {
     const key = el.closest<HTMLElement>("[data-g]")?.dataset.g;
     if (!key) return [];
-    return data.current.filter((a) => (groupSel.value === "none" ? a.fingerprint : `${a.source}\u0000${a.name}`) === key);
+    return data.current.filter((a) => groupKey(a) === key);
   };
 
   root.addEventListener("click", async (e) => {
