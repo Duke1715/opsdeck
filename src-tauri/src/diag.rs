@@ -35,7 +35,9 @@ pub fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         // chatty dependencies: keep their warnings only
         .level_for("tao", log::LevelFilter::Warn)
         .level_for("wry", log::LevelFilter::Warn)
-        .level_for("kube_client", log::LevelFilter::Warn)
+        // kube_client logs every failed request at ERROR without context ("client error (Connect)"),
+        // hundreds of lines while a cluster is unreachable; k8s.rs logs failures with the context itself
+        .level_for("kube_client", log::LevelFilter::Off)
         .level_for("kube_runtime", log::LevelFilter::Warn)
         .level_for("hyper_util", log::LevelFilter::Warn)
         .level_for("reqwest", log::LevelFilter::Warn)

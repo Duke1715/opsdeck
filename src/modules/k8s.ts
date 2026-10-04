@@ -1265,9 +1265,11 @@ export function mountK8s(root: HTMLElement) {
   setInterval(() => {
     if (!root.hidden && autoCb.checked && !document.hidden && kind.source === "helm") refresh();
   }, 30000);
-  setInterval(() => { if (!document.hidden) loadMetrics(); }, 15000);
+  // only while the view is open: an unreachable cluster shouldn't be hammered in the background
+  setInterval(() => { if (!document.hidden && !root.hidden) loadMetrics(); }, 15000);
   window.addEventListener("view-shown", (e) => {
-    if ((e as CustomEvent).detail !== "k8s") return;
+    // leaving the view: stop the live watch (it resumes on return), no reconnect loop in the background
+    if ((e as CustomEvent).detail !== "k8s") { stopWatch(); return; }
     loadContexts();
     if (ctx && !watchId && kind.source !== "helm") startWatch();
     render();
