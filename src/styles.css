@@ -882,3 +882,6 @@ dialog.task-dialog { width: 520px; }
 .tabbar.w1 .ide-status { max-width: 22px; overflow: hidden; }
 .tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 .help-btn { display: none; }
 .tabbar.w3 [data-act=split-r], .tabbar.w3 [data-act=split-d], .tabbar.w3 [data-act=rec] { display: none; }
+/* notes toolbar: buttons keep one line; the note path shrinks instead */
+.notes-bar > :not(.note-path):not(.spacer) { flex: none; white-space: nowrap; }
+.notes-bar .note-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

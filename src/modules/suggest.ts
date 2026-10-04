@@ -119,7 +119,7 @@ export class AutoSuggest {
     d.onDispose(() => marker.dispose());
     d.onRender((el) => {
       el.textContent = shown;
-      el.className = "term-ghost";
+      el.classList.add("term-ghost"); // keep xterm's own class: it positions the decoration
       el.style.fontFamily = String(this.term.options.fontFamily);
       el.style.fontSize = `${this.term.options.fontSize}px`;
       el.style.lineHeight = el.style.height;
