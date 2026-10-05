@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { esc } from "./ui";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -43,7 +44,7 @@ export function mountNetwork(root: HTMLElement) {
         <table class="res ports-table"><thead><tr><th>Порт</th><th>Статус</th><th>Обычно</th><th>Что отвечает</th><th>мс</th></tr></thead><tbody></tbody></table>
         <div class="page-head listen-head">
           <h3>Эта машина слушает</h3>
-          <div class="row"><input class="lfilter" placeholder="фильтр: порт, процесс…" spellcheck="false" /><button type="button" class="ghost" data-act="listen">↻ Обновить</button></div>
+          <div class="row"><input class="lfilter" placeholder="фильтр: порт, процесс…" spellcheck="false" /><button type="button" class="ghost" data-act="listen">${icon("refresh", 16)} Обновить</button></div>
         </div>
         <table class="res listen-table"><thead><tr><th>Протокол</th><th>Адрес</th><th>Порт</th><th>Процесс</th><th>PID</th><th>Обычно</th></tr></thead><tbody></tbody></table>
         <p class="muted small">Процессы других пользователей (например, системные sshd, DNS) без прав root не видны — у них пустое имя.</p>

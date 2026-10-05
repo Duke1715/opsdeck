@@ -24,32 +24,24 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { registerProvider } from "./modules/palette";
 
-type View = { id: string; icon: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean; svg?: string };
+import { icon } from "./modules/icons";
 
-// line icons drawn with currentColor, so they match the monochrome text glyphs (emoji render in color)
-const svgIcon = (body: string) =>
-  `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-const ICON_KEY = svgIcon('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2"/>');
-const ICON_BELL = svgIcon('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>');
-const ICON_DB = svgIcon('<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>');
-const ICON_CODE = svgIcon('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/>');
-const ICON_TASKS = svgIcon('<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12.5l2.8 2.8L16.5 9"/>');
-const ICON_SERVER = svgIcon('<rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/>');
+type View = { id: string; svg: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
 
 const views: View[] = [
-  { id: "terminal", icon: "▶", title: "Терминал + AI", mount: mountTerminal },
-  { id: "k8s", icon: "☸", title: "Kubernetes", mount: mountK8s },
-  { id: "web", icon: "◎", title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
-  { id: "alerts", icon: "🔔", svg: ICON_BELL, title: "Алерты", mount: mountAlerts },
-  { id: "net", icon: "⇄", title: "Сеть и DNS", mount: mountNetwork },
-  { id: "ssh", icon: "🖧", svg: ICON_SERVER, title: "SSH", mount: mountSsh },
-  { id: "code", icon: "</>", svg: ICON_CODE, title: "IDE: код и git", mount: mountCode },
-  { id: "db", icon: "🗄", svg: ICON_DB, title: "Базы данных", mount: mountDb },
-  { id: "notes", icon: "✎", title: "Заметки", mount: mountNotes },
-  { id: "tasks", icon: "☑", svg: ICON_TASKS, title: "Задачи и напоминания", mount: mountTasks },
-  { id: "vault", icon: "🔑", svg: ICON_KEY, title: "KeePass", mount: mountKeepass },
-  { id: "winbox", icon: "⌘", title: "MikroTik / WinBox", mount: mountMikrotik },
-  { id: "settings", icon: "⚙", title: "Настройки", mount: mountSettings, bottom: true },
+  { id: "terminal", svg: icon("terminal", 20), title: "Терминал + AI", mount: mountTerminal },
+  { id: "k8s", svg: icon("k8s", 20), title: "Kubernetes", mount: mountK8s },
+  { id: "web", svg: icon("web", 20), title: "Grafana · ArgoCD · GitLab", mount: mountConnectors },
+  { id: "alerts", svg: icon("bell", 20), title: "Алерты", mount: mountAlerts },
+  { id: "net", svg: icon("net", 20), title: "Сеть и DNS", mount: mountNetwork },
+  { id: "ssh", svg: icon("server", 20), title: "SSH", mount: mountSsh },
+  { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: mountCode },
+  { id: "db", svg: icon("db", 20), title: "Базы данных", mount: mountDb },
+  { id: "notes", svg: icon("notes", 20), title: "Заметки", mount: mountNotes },
+  { id: "tasks", svg: icon("tasks", 20), title: "Задачи и напоминания", mount: mountTasks },
+  { id: "vault", svg: icon("key", 20), title: "KeePass", mount: mountKeepass },
+  { id: "winbox", svg: icon("router", 20), title: "MikroTik / WinBox", mount: mountMikrotik },
+  { id: "settings", svg: icon("settings", 20), title: "Настройки", mount: mountSettings, bottom: true },
 ];
 
 startI18n();
@@ -70,7 +62,7 @@ for (const v of views) {
   const btn = document.createElement("button");
   btn.dataset.view = v.id;
   btn.title = v.title;
-  if (v.svg) btn.innerHTML = v.svg; else btn.textContent = v.icon;
+  btn.innerHTML = v.svg;
   btn.onclick = () => show(v.id);
   if (v.bottom) btn.classList.add("bottom");
   sidebar.appendChild(btn);
@@ -148,7 +140,7 @@ setTimeout(() => {
     .catch(() => {});
 }, 8000);
 
-registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.icon, run: () => show(v.id) })));
+registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));
 
 show("terminal");

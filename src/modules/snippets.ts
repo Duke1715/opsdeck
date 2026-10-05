@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { registerProvider } from "./palette";
 import { ask, esc, toast } from "./ui";
+import { icon } from "./icons";
 
 export type Snippet = { id: string; title: string; command: string; tags: string[] };
 
@@ -41,7 +42,7 @@ registerProvider(async () =>
 export function mountSnippets(el: HTMLElement) {
   el.innerHTML = `
     <div class="row sn-head"><span class="muted">Команды с параметрами <code>{{имя}}</code> — запуск через палитру (Ctrl+Shift+P). Команда вставляется в терминал, Enter жмёте вы.</span>
-      <button type="button" class="primary" data-a="add">＋ Сниппет</button></div>
+      <button type="button" class="primary" data-a="add">${icon("plus", 16)} Сниппет</button></div>
     <table class="res sn-table"><tbody></tbody></table>
     <dialog class="sn-dialog">
       <form method="dialog">
@@ -63,7 +64,7 @@ export function mountSnippets(el: HTMLElement) {
     list = await snippetsList().catch(() => []);
     tbody.innerHTML = list.map((s, i) => `<tr data-i="${i}">
       <td>${esc(s.title)}</td><td class="muted sn-cmd">${esc(s.command)}</td>
-      <td class="sn-acts"><button type="button" class="icon" data-a="edit">✎</button><button type="button" class="icon danger" data-a="del">×</button></td></tr>`).join("")
+      <td class="sn-acts"><button type="button" class="icon" data-a="edit">${icon("edit", 14)}</button><button type="button" class="icon danger" data-a="del">${icon("trash", 14)}</button></td></tr>`).join("")
       || `<tr><td class="muted">Пока нет сниппетов. Их можно сохранять кнопкой ★ над блоком команды в терминале.</td></tr>`;
   };
   const open = (s: Snippet | null) => {

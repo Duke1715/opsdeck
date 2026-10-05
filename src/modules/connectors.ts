@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
@@ -27,7 +28,7 @@ export function mountConnectors(root: HTMLElement) {
       <span class="web-nav" hidden>
         <button class="icon" data-n="back" title="Назад">←</button>
         <button class="icon" data-n="forward" title="Вперёд">→</button>
-        <button class="icon" data-n="reload" title="Обновить">↻</button>
+        <button class="icon" data-n="reload" title="Обновить">${icon("refresh", 16)}</button>
         <button class="icon" data-n="home" title="На стартовую страницу">⌂</button>
         <span class="web-zoom">
           <button class="icon" data-z="-1" title="Мельче">−</button>
@@ -41,7 +42,7 @@ export function mountConnectors(root: HTMLElement) {
     <div class="page web-home">
       <div class="page-head">
         <h2>Веб-панели</h2>
-        <button class="primary" data-act="add">＋ Добавить</button>
+        <button class="primary" data-act="add">${icon("plus", 16)} Добавить</button>
       </div>
       <p class="muted">Grafana, ArgoCD, GitLab и любые другие веб-интерфейсы открываются вкладками здесь же (или в отдельном окне — ⧉) с автологином. Секреты хранятся в системном keyring или KeePass.</p>
       <div class="cards"></div>
@@ -313,8 +314,8 @@ export function mountConnectors(root: HTMLElement) {
           <button class="primary" data-act="open">Открыть</button>
           <button class="ghost" data-act="window" title="Открыть в отдельном окне">⧉</button>
           <span class="spacer"></span>
-          <button class="icon" data-act="edit" title="Изменить">✎</button>
-          <button class="icon danger" data-act="del" title="Удалить">🗑</button>
+          <button class="icon" data-act="edit" title="Изменить">${icon("edit", 14)}</button>
+          <button class="icon danger" data-act="del" title="Удалить">${icon("trash", 14)}</button>
         </div>`;
       card.querySelector(".card-kind")!.textContent = KINDS[c.kind]?.label ?? c.kind;
       card.querySelector(".card-name")!.textContent = c.name;

@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
@@ -16,7 +17,7 @@ export function mountMikrotik(root: HTMLElement) {
     <div class="page">
       <div class="page-head">
         <h2>MikroTik</h2>
-        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Устройство</button>${helpBtn("winbox")}</div>
+        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">${icon("plus", 16)} Устройство</button>${helpBtn("winbox")}</div>
       </div>
       <p class="muted">WinBox запускается с логином и паролем из KeePass или keyring. SSH открывается вкладкой терминала, а пароль кладётся в буфер на 30 с.</p>
       <div class="mt-list"></div>
@@ -119,13 +120,13 @@ export function mountMikrotik(root: HTMLElement) {
         <tr data-id="${esc(d.id)}">
           <td class="mt-name">${esc(d.name)}</td>
           <td>${esc(d.host)}${d.winbox_port !== 8291 ? `<span class="muted">:${d.winbox_port}</span>` : ""}</td>
-          <td class="muted">${esc(d.username || "")} ${d.auth === "keepass" ? `🔑 ${esc(titles.get(d.keepass_entry) ?? "KeePass")}` : d.auth === "password" ? "· keyring" : ""}</td>
+          <td class="muted">${esc(d.username || "")} ${d.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(d.keepass_entry) ?? "KeePass")}` : d.auth === "password" ? "· keyring" : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="winbox">WinBox</button>
             <button data-a="ssh">SSH</button>
             <button class="ghost" data-a="ping">ping</button>
-            <button class="icon" data-a="edit" title="Изменить">✎</button>
-            <button class="icon danger" data-a="del" title="Удалить">×</button>
+            <button class="icon" data-a="edit" title="Изменить">${icon("edit", 14)}</button>
+            <button class="icon danger" data-a="del" title="Удалить">${icon("trash", 14)}</button>
           </td></tr>`).join("")}</tbody></table></div>`).join("");
   }
 

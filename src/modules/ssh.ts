@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { registerProvider } from "./palette";
@@ -36,7 +37,7 @@ export function mountSsh(root: HTMLElement) {
     <div class="page">
       <div class="page-head">
         <h2>SSH</h2>
-        <div class="row"><input class="ssh-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">＋ Хост</button>${helpBtn("ssh")}</div>
+        <div class="row"><input class="ssh-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">${icon("plus", 16)} Хост</button>${helpBtn("ssh")}</div>
       </div>
       <p class="muted">Подключение открывает вкладку терминала. Хосты из ~/.ssh/config подключаются по алиасу со всеми его настройками. Пароль из KeePass/keyring кладётся в буфер на 30 с.</p>
       <div class="ssh-list"></div>
@@ -142,11 +143,11 @@ export function mountSsh(root: HTMLElement) {
         <tr data-id="${esc(h.id)}">
           <td class="mt-name">${esc(h.name)}</td>
           <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.host)}${h.port !== 22 ? `<span class="muted">:${h.port}</span>` : ""}</td>
-          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `🔑 ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : esc(AUTH[h.auth] ?? "")}</td>
+          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : esc(AUTH[h.auth] ?? "")}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect">Подключиться</button>
-            <button class="icon" data-a="edit" title="Изменить (в т.ч. группу)">✎</button>
-            <button class="icon danger" data-a="del" title="Удалить">🗑</button>
+            <button class="icon" data-a="edit" title="Изменить (в т.ч. группу)">${icon("edit", 14)}</button>
+            <button class="icon danger" data-a="del" title="Удалить">${icon("trash", 14)}</button>
           </td></tr>`;
 
   // what ssh will really use (`ssh -G`), including Match/Include/wildcard blocks
@@ -163,7 +164,7 @@ export function mountSsh(root: HTMLElement) {
           <td class="muted">${warn}${(e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : ""}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect-cfg">Подключиться</button>
-            <button class="icon" data-a="group-cfg" title="Группа">📁</button>
+            <button class="icon" data-a="group-cfg" title="Группа">${icon("folder", 14)}</button>
             <button class="icon" data-a="copy-cfg" title="Сохранить как профиль OpsDeck (можно привязать пароль из KeePass)">⧉</button>
           </td></tr>`;
   };
@@ -183,7 +184,7 @@ export function mountSsh(root: HTMLElement) {
     list.innerHTML = order.map((g) => `
       <details class="ssh-group" data-g="${esc(g)}" ${q || !closed.has(g) ? "open" : ""}>
         <summary><span class="ssh-group-title">${esc(g || "Без группы")}</span><span class="conn-row-count">${groups.get(g)!.length}</span>
-          ${g && g !== CFG ? `<button class="icon ssh-group-ren" data-a="rename" title="Переименовать группу">✎</button>` : ""}</summary>
+          ${g && g !== CFG ? `<button class="icon ssh-group-ren" data-a="rename" title="Переименовать группу">${icon("edit", 14)}</button>` : ""}</summary>
         <table class="res mt-table"><tbody>${groups.get(g)!.join("")}</tbody></table>
       </details>`).join("")
       || (q ? `<p class="muted">Ничего не найдено.</p>` : `<p class="muted">Пока пусто — добавьте хост или заведите его в ~/.ssh/config.</p>`);
@@ -267,11 +268,11 @@ export function mountSsh(root: HTMLElement) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
         ghost = document.createElement("div");
         ghost.className = "drag-ghost";
-        ghost.textContent = "🖧 " + (row.querySelector(".mt-name")?.childNodes[0]?.textContent?.trim() ?? "");
+        ghost.textContent = row.querySelector(".mt-name")?.childNodes[0]?.textContent?.trim() ?? "";
         document.body.appendChild(ghost);
         zone = document.createElement("div");
         zone.className = "ssh-new-group";
-        zone.textContent = "＋ Новая группа";
+        zone.textContent = "+ Новая группа";
         list.appendChild(zone);
         row.classList.add("dragging");
       }

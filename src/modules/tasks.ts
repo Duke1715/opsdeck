@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { t as tl } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
@@ -7,7 +8,7 @@ import { addDays, openNote, PRIORITY, startReminderCards, taskDialog, ymd, type 
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const WD = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-const PRIO_MARK: Record<number, string> = { 3: "🔺", 2: "⏫", 1: "🔼", [-1]: "🔽" };
+const PRIO_MARK: Record<number, string> = { 3: "↑↑", 2: "↑", 1: "↗", [-1]: "↓" };
 
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -31,8 +32,8 @@ export function mountTasks(root: HTMLElement) {
         <h2>Задачи <span class="muted small-note tk-count"></span></h2>
         <div class="row">
           <input class="tk-filter" placeholder="поиск: текст, #тег, заметка" spellcheck="false" />
-          <button class="ghost" data-a="cal" title="Календарь: какие задачи на какой день">📅 Календарь</button>
-          <button class="primary" data-a="add">＋ Задача</button>
+          <button class="ghost" data-a="cal" title="Календарь: какие задачи на какой день">${icon("calendar", 16)} Календарь</button>
+          <button class="primary" data-a="add">${icon("plus", 16)} Задача</button>
           ${helpBtn("tasks")}
         </div>
       </div>
@@ -85,10 +86,10 @@ export function mountTasks(root: HTMLElement) {
       ${PRIO_MARK[t.priority] ? `<span class="tk-prio" title="${PRIORITY[String(t.priority)]}">${PRIO_MARK[t.priority]}</span>` : ""}
       <span class="tk-text">${text}</span>
       <span class="tk-meta">
-        ${t.due ? `<span class="tk-due" data-act="due" title="Изменить срок">📅 ${esc(human(t.due))}${t.time ? ` ⏰ ${esc(t.time)}` : ""}</span>` : `<span class="tk-due empty" data-act="due" title="Назначить срок">＋ срок</span>`}
+        ${t.due ? `<span class="tk-due" data-act="due" title="Изменить срок">${icon("calendar", 14)} ${esc(human(t.due))}${t.time ? ` ${icon("clock", 14)} ${esc(t.time)}` : ""}</span>` : `<span class="tk-due empty" data-act="due" title="Назначить срок">${icon("plus", 14)} срок</span>`}
         <span class="tk-acts">
           ${!t.done ? `<span data-act="tomorrow" title="Перенести на завтра">→ завтра</span>` : ""}
-          <span data-act="edit" title="Изменить задачу">✎</span>
+          <span data-act="edit" title="Изменить задачу">${icon("edit", 14)}</span>
         </span>
         <span class="tk-note" data-act="open" title="Открыть заметку">${esc(t.path.replace(/\.md$/, ""))}</span>
       </span>
@@ -231,9 +232,9 @@ export function mountTasks(root: HTMLElement) {
     const dayTasks = (byDay.get(calDay) ?? []).sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99"));
     cal.innerHTML = `
       <div class="cal-head"><button class="icon" data-c="prev">‹</button><b>${MONTHS[m]} ${y}</b><button class="icon" data-c="next">›</button>
-        <button class="ghost" data-c="today">Сегодня</button><span class="spacer"></span><button class="icon" data-c="close" title="Закрыть">×</button></div>
+        <button class="ghost" data-c="today">Сегодня</button><span class="spacer"></span><button class="icon" data-c="close" title="Закрыть">${icon("close", 16)}</button></div>
       <div class="cal-grid">${WD.map((w) => `<div class="cal-wd">${w}</div>`).join("")}${cells.join("")}</div>
-      <div class="cal-dayhead"><b>${esc(human(calDay))}</b> <span class="muted">${calDay}</span><span class="spacer"></span><button class="ghost" data-c="add">＋ задача на этот день</button></div>
+      <div class="cal-dayhead"><b>${esc(human(calDay))}</b> <span class="muted">${calDay}</span><span class="spacer"></span><button class="ghost" data-c="add">${icon("plus", 14)} задача на этот день</button></div>
       <div class="cal-daylist">${dayTasks.length ? dayTasks.map(row).join("") : `<p class="muted">задач нет</p>`}</div>`;
   }
   cal.addEventListener("click", (e) => {
