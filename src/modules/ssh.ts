@@ -310,6 +310,6 @@ export function mountSsh(root: HTMLElement) {
 
   filter.oninput = draw;
   root.querySelector<HTMLElement>("[data-a=add]")!.onclick = () => open(null);
+  // defer until the tab is shown — mounting all views at startup would run N× ssh -G (console flash on Windows)
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "ssh") load(); });
-  load();
 }
