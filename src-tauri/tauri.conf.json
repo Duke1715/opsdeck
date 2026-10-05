@@ -54,6 +54,9 @@
           "libgtk-3-0"
         ]
       }
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   },
   "plugins": {
