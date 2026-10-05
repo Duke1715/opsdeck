@@ -8,7 +8,7 @@ use std::{
     io::{Read, Write},
     sync::Mutex,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
@@ -109,6 +109,23 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     let id = req.id.clone();
     let recorder: Recorder = Default::default();
     let rec = recorder.clone();
+    let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // the reader and the Windows exit watcher both report the end; only the first one counts
+    let finish = {
+        let (app, id, rec, ended) = (app.clone(), id.clone(), rec.clone(), ended.clone());
+        move || {
+            if ended.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            if let Some(r) = rec.lock().unwrap().take() {
+                let _ = app.emit(&format!("pty-record-{id}"), r.finish().to_string_lossy().into_owned());
+            }
+            let _ = app.emit(&format!("pty-exit-{id}"), ());
+        }
+    };
+    if cfg!(windows) {
+        watch_exit(app.clone(), id.clone(), finish.clone());
+    }
     std::thread::spawn(move || {
         let mut buf = [0u8; 16384];
         loop {
@@ -123,10 +140,7 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
                 }
             }
         }
-        if let Some(r) = rec.lock().unwrap().take() {
-            let _ = app.emit(&format!("pty-record-{id}"), r.finish().to_string_lossy().into_owned());
-        }
-        let _ = app.emit(&format!("pty-exit-{id}"), ());
+        finish();
     });
 
     state
@@ -135,6 +149,24 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .unwrap()
         .insert(req.id, Session { master: pair.master, writer, child, recorder });
     Ok(())
+}
+
+/// ConPTY keeps the output pipe open after the shell exits (`exit` in PowerShell), so the reader
+/// never sees EOF. Poll the child instead; dropping the session closes the pseudo console.
+fn watch_exit(app: AppHandle, id: String, finish: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let state = app.state::<PtyState>();
+        let mut sessions = state.sessions.lock().unwrap();
+        let Some(s) = sessions.get_mut(&id) else { return }; // killed from the UI
+        if matches!(s.child.try_wait(), Ok(Some(_))) {
+            let s = sessions.remove(&id);
+            drop(sessions);
+            finish();
+            drop(s); // may block until ConPTY flushes: off the lock
+            return;
+        }
+    });
 }
 
 /// $SHELL on Unix; PowerShell on Windows.
