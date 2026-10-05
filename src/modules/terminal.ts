@@ -20,6 +20,7 @@ const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
   Codex: { program: "codex" },
   Gemini: { program: "gemini" },
   Aider: { program: "aider" },
+  OpenCode: { program: "opencode" },
 };
 const MAX_PANES = 4;
 
