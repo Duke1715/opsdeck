@@ -3,7 +3,7 @@
 //! the background on first use and stopped after a while without requests.
 //! Used to turn a request in plain words into a shell command, with the user's notes as context.
 
-use crate::store::err;
+use crate::{process, store::err};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -314,11 +314,7 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    process::no_console(&mut cmd);
     let child = cmd.spawn().map_err(|e| format!("не удалось запустить llama-server: {e}"))?;
     *state.server.lock().unwrap() = Some(Server { child, port, last_used: Instant::now() });
     // wait for the model to load

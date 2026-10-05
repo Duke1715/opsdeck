@@ -1,7 +1,7 @@
 //! "Файлы" panel of the terminal: directory listing with git status, and opening files/folders
 //! in an IDE or editor (detected on this machine), optionally at a line.
 
-use crate::store::err;
+use crate::{process, store::err};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -69,7 +69,10 @@ pub async fn fs_git_status(path: String) -> GitStatus {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = expand(&path);
         let git = |args: &[&str]| {
-            Command::new("git").arg("-C").arg(&dir).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|o| o.status.success())
+            let mut cmd = Command::new("git");
+            cmd.arg("-C").arg(&dir).args(args).stdin(Stdio::null()).stderr(Stdio::null());
+            process::no_console(&mut cmd);
+            cmd.output().ok().filter(|o| o.status.success())
         };
         let Some(root) = git(&["rev-parse", "--show-toplevel"]) else { return GitStatus::default() };
         let root = String::from_utf8_lossy(&root.stdout).trim().to_string();
@@ -293,6 +296,7 @@ pub fn editor_open(editor: String, path: String, line: Option<u32>, custom: Opti
 fn spawn_detached(program: &str, args: &[String], cwd: &Path) -> Result<(), String> {
     let mut cmd = Command::new(program);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    process::no_console(&mut cmd);
     if cwd.is_dir() {
         cmd.current_dir(cwd);
     }

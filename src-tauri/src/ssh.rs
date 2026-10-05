@@ -4,7 +4,7 @@
 
 use crate::{
     keepass::{self, KeepassState},
-    store,
+    process, store,
     tools::valid_host,
 };
 use serde::{Deserialize, Serialize};
@@ -165,11 +165,7 @@ fn effective(alias: &str) -> Option<Effective> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     // without this, Windows flashes an OpenSSH console for every alias
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    process::no_console(&mut cmd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;

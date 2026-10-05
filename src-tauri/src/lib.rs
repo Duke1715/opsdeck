@@ -15,14 +15,15 @@ mod k8s;
 mod keepass;
 mod mikrotik;
 mod notes;
+mod ports;
+mod process;
+mod pty;
 mod settings;
 mod snippets;
 mod ssh;
 mod sysmon;
 mod store;
 mod tasks;
-mod ports;
-mod pty;
 mod tools;
 mod updater;
 

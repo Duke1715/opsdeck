@@ -1,7 +1,7 @@
 //! Built-in IDE: read/write text files (with an on-disk change check), `terraform fmt` with
 //! syntax errors, and git data for the side panel (commit graph, diffs).
 
-use crate::{editor::expand, store::err};
+use crate::{editor::expand, process, store::err};
 use serde::Serialize;
 use std::{
     io::Write,
@@ -94,7 +94,12 @@ pub struct FmtResult {
 }
 
 fn find_tool() -> Option<String> {
-    ["terraform", "tofu"].into_iter().find(|t| Command::new(t).arg("version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok()).map(str::to_string)
+    ["terraform", "tofu"].into_iter().find(|t| {
+        let mut cmd = Command::new(t);
+        cmd.arg("version").stdout(Stdio::null()).stderr(Stdio::null());
+        process::no_console(&mut cmd);
+        cmd.status().is_ok()
+    }).map(str::to_string)
 }
 
 /// `terraform fmt -` on the buffer: formatted text, or the syntax errors with line numbers.
@@ -102,13 +107,15 @@ fn find_tool() -> Option<String> {
 pub async fn code_tf_fmt(text: String) -> Result<FmtResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let Some(tool) = find_tool() else { return Ok(FmtResult { text: None, errors: Vec::new(), tool: String::new() }) };
-        let mut child = Command::new(&tool)
-            .args(["fmt", "-no-color", "-"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("{tool}: {e}"))?;
+        let mut child = {
+            let mut cmd = Command::new(&tool);
+            cmd.args(["fmt", "-no-color", "-"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            process::no_console(&mut cmd);
+            cmd.spawn().map_err(|e| format!("{tool}: {e}"))?
+        };
         let mut stdin = child.stdin.take().ok_or("stdin")?;
         let input = text.clone();
         let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
@@ -157,7 +164,10 @@ fn parse_tf_errors(stderr: &str) -> Vec<Diag> {
 // ---------- git ----------
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).stdin(Stdio::null()).output().map_err(|e| format!("git: {e}"))?;
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(dir).args(args).stdin(Stdio::null());
+    process::no_console(&mut cmd);
+    let out = cmd.output().map_err(|e| format!("git: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
@@ -211,13 +221,15 @@ pub async fn code_git_diff(root: String, file: String) -> Result<String, String>
             return Ok(d);
         }
         // untracked or new: diff against /dev/null (exit code 1 means "differs")
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&dir)
-            .args(["diff", "--no-color", "--no-index", "--", "/dev/null", &file])
-            .stdin(Stdio::null())
-            .output()
-            .map_err(err)?;
+        let out = {
+            let mut cmd = Command::new("git");
+            cmd.arg("-C")
+                .arg(&dir)
+                .args(["diff", "--no-color", "--no-index", "--", "/dev/null", &file])
+                .stdin(Stdio::null());
+            process::no_console(&mut cmd);
+            cmd.output().map_err(err)?
+        };
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     })
     .await
@@ -324,6 +336,7 @@ pub async fn code_git_op(root: String, op: String, name: Option<String>, from: O
             if std::env::var_os("GIT_SSH_COMMAND").is_none() {
                 cmd.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
             }
+            process::no_console(&mut cmd);
             let out = cmd.output().map_err(|e| format!("git: {e}"))?;
             let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).trim().to_string();
             if out.status.success() { Ok(text) } else { Err(if text.is_empty() { format!("git {} завершился с ошибкой", args[0]) } else { text }) }

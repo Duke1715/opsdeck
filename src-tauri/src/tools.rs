@@ -1,5 +1,6 @@
 //! Network/DNS utilities. Runs the system binaries (no shell) and streams output line by line.
 
+use crate::process;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, process::Stdio, sync::Mutex};
 use tauri::{AppHandle, Emitter, State};
@@ -102,15 +103,17 @@ pub async fn tool_run(
     let (program, args) = build(&req)?;
     let cmdline = format!("{program} {}", args.join(" "));
 
-    let mut child = Command::new(program)
-        .args(&args)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("{program}: {e}"))?;
+    let mut child = {
+        let mut cmd = Command::new(program);
+        cmd.args(&args)
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        process::no_console_tokio(&mut cmd);
+        cmd.spawn().map_err(|e| format!("{program}: {e}"))?
+    };
 
     let line_event = format!("tool-line-{run_id}");
     pump(app.clone(), line_event.clone(), "out", child.stdout.take().unwrap());
