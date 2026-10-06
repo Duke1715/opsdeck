@@ -1,0 +1,30 @@
+# Пересобрать latest.json (манифест обновлений) уже вышедшего релиза из подписанных файлов в нём.
+# Вручную: Actions → latest.json → Run workflow → тег. При пуше в master с изменением этого файла или
+# скрипта — для последнего релиза (так чинится релиз, у которого манифест получился неполным).
+name: latest.json
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, например v0.5.0 (пусто — последний релиз)"
+        required: false
+  push:
+    branches: [master, main]
+    paths: [".github/workflows/latest-json.yml", "scripts/latest-json.sh"]
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          tag="${TAG:-$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)}"
+          scripts/latest-json.sh "$tag"

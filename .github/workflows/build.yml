@@ -185,6 +185,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      # builds that finish at the same moment overwrite each other's entries in latest.json:
+      # assemble it once from all the signed files before the release becomes visible
+      - name: Rebuild latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/latest-json.sh "${GITHUB_REF_NAME}"
       - name: Publish the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
