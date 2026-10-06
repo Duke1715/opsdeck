@@ -356,9 +356,9 @@ dialog.mt-dialog { width: 560px; }
 .notes-list { font-size: 13px; }
 .tree-row, .note-item { --depth: 0; display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 0;
   background: transparent; text-align: left; padding: 3px 10px 3px calc(10px + var(--depth) * 16px); white-space: nowrap; }
-.note-item { flex-direction: row; padding-left: calc(28px + var(--depth) * 16px); color: var(--text); }
+.note-item { flex-direction: row; justify-content: flex-start; padding-left: calc(28px + var(--depth) * 16px); color: var(--text); }
 .tree-row:hover, .note-item:hover { background: var(--panel-2); }
-.tree-row { color: var(--text); font-weight: 500; }
+.tree-row { color: var(--text); font-weight: 500; justify-content: flex-start; text-align: left; }
 .tree-caret { width: 10px; font-size: 10px; color: var(--muted); transition: transform .12s; flex: none; }
 .tree-dir.open > .tree-row .tree-caret { transform: rotate(90deg); }
 .tree-dir:not(.open) > .tree-children { display: none; }

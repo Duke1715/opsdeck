@@ -56,7 +56,7 @@ function mountAi(el: HTMLElement) {
         ${st.installing ? `<button type="button" class="ghost" data-ai="cancel">Отменить</button>`
           : ready ? `${custom ? "" : `<button type="button" class="ghost" data-ai="remove-model" data-id="${ms.selected}">Удалить модель</button>`}<button type="button" class="ghost" data-ai="remove">Удалить всё</button>`
           : custom ? "" : `<button type="button" class="primary" data-ai="install">${st.size > 0 ? "Скачать" : "Установить"}</button>`}</div>
-      ${others.length ? `<div class="muted ai-others">Ещё скачаны: ${others.map((m) => `${esc(t(m.title))} (${(m.size / GB).toFixed(1)} ГБ) <button type="button" class="link" data-ai="remove-model" data-id="${m.id}">удалить</button>`).join(", ")}</div>` : ""}
+      ${others.length ? `<div class="muted ai-others">Ещё скачаны: ${others.map((m) => `${esc(t(m.title))} (${(m.size / GB).toFixed(1)} ${t("ГБ")}) <button type="button" class="link" data-ai="remove-model" data-id="${m.id}">удалить</button>`).join(", ")}</div>` : ""}
       <div class="upd-progress ai-prog" ${st.installing ? "" : "hidden"}><div class="upd-bar"></div></div>
       <div class="ai-stage muted" data-no-i18n></div>
       <div class="muted small-path" title="Папка с движком и моделями">${esc(st.dir)}</div>`;
