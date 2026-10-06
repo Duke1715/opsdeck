@@ -1,14 +1,31 @@
-# Еженедельные PR с обновлениями зависимостей (в т.ч. с исправлениями безопасности)
+# Обновления зависимостей раз в месяц, одним PR на экосистему, в ветку dev.
+# Мажорные версии (vite 8, typescript 7, xterm 6, …) обновляем вручную: они ломают API.
+# Исправления безопасности приходят отдельно и сразу (Dependabot security updates).
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /src-tauri
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    target-branch: dev
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      cargo: { update-types: [minor, patch] }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: npm
     directory: /
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    target-branch: dev
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      npm: { update-types: [minor, patch] }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    target-branch: dev
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }
