@@ -150,6 +150,7 @@ pub fn run() {
             ai::ai_select,
             ai::ai_remove_model,
             ai::ai_pick_model,
+            ai::ai_set_gpu,
             ai::ai_command,
             cmdindex::cmd_suggest,
             db::db_list,

@@ -14,7 +14,7 @@ const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
 const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
-type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean };
 // sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
 const GB = 1e9;
 const GiB = 1073741824;
@@ -43,7 +43,13 @@ function mountAi(el: HTMLElement) {
         <button type="button" class="ghost" data-ai="pick">Выбрать…</button>
         <button type="button" class="primary" data-ai="use-custom">Использовать</button>
       </div>
-      <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше).</p>
+      ${ms.metal ? `<p class="muted hint">Ускорение: видеокарта Apple (Metal) используется автоматически.</p>`
+        : ms.gpu_supported ? `<label>Ускорение <select class="ai-gpu" ${st.installing ? "disabled" : ""}>
+            <option value="cpu" ${ms.gpu ? "" : "selected"}>Процессор</option>
+            <option value="gpu" ${ms.gpu ? "selected" : ""}>Видеокарта (Vulkan)</option>
+          </select></label>
+          ${ms.gpu && !ms.vulkan_found ? `<p class="muted hint warn">Драйвер Vulkan не найден — установите драйвер видеокарты (Linux: пакет libvulkan1 / vulkan-loader) или выберите «Процессор».</p>` : ""}` : ""}
+      <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. ${ms.gpu || ms.metal ? "На видеокарте модель отвечает в разы быстрее; если видеопамяти мало, часть модели остаётся на процессоре." : "Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше) — включите ускорение на видеокарте, если она есть."}</p>
       <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
         <span class="spacer"></span>
         ${st.installing ? `<button type="button" class="ghost" data-ai="cancel">Отменить</button>`
@@ -55,6 +61,11 @@ function mountAi(el: HTMLElement) {
       <div class="muted small-path" title="Папка с движком и моделями">${esc(st.dir)}</div>`;
   };
   el.addEventListener("change", async (e) => {
+    const gpu = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-gpu");
+    if (gpu) {
+      try { await invoke("ai_set_gpu", { on: gpu.value === "gpu" }); } catch (err) { toast(String(err), "err"); }
+      return draw();
+    }
     const sel = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-model");
     if (!sel) return;
     if (sel.value === "custom") { el.querySelector<HTMLElement>(".ai-custom")!.hidden = false; return; }

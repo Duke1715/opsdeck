@@ -84,8 +84,14 @@ fn ai_dir() -> Result<PathBuf, String> {
     Ok(d)
 }
 
-/// The engine archive for this OS/CPU (CPU builds; macOS builds include Metal).
+/// The engine archive for this OS/CPU: the CPU build, or the Vulkan one (any NVIDIA/AMD/Intel GPU)
+/// when GPU acceleration is on. macOS builds always include Metal.
 fn engine_asset() -> Result<&'static str, String> {
+    if use_gpu() {
+        if let Some(a) = vulkan_asset() {
+            return Ok(a);
+        }
+    }
     Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => "bin-ubuntu-x64.tar.gz",
         ("linux", "aarch64") => "bin-ubuntu-arm64.tar.gz",
@@ -95,6 +101,33 @@ fn engine_asset() -> Result<&'static str, String> {
         ("windows", "aarch64") => "bin-win-cpu-arm64.zip",
         (os, arch) => return Err(format!("локальный ИИ пока не поддерживается на {os}/{arch}")),
     })
+}
+
+fn vulkan_asset() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("bin-ubuntu-vulkan-x64.tar.gz"),
+        ("linux", "aarch64") => Some("bin-ubuntu-vulkan-arm64.tar.gz"),
+        ("windows", "x86_64") => Some("bin-win-vulkan-x64.zip"),
+        _ => None,
+    }
+}
+
+/// The Vulkan loader the GPU build links against (installed with the video driver).
+fn vulkan_found() -> bool {
+    #[cfg(windows)]
+    {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        return Path::new(&root).join("System32").join("vulkan-1.dll").exists();
+    }
+    #[cfg(not(windows))]
+    ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/lib/x86_64-linux-gnu", "/lib64"]
+        .iter()
+        .any(|d| Path::new(d).join("libvulkan.so.1").exists())
+}
+
+/// GPU acceleration chosen in Settings and possible here (macOS: Metal, always on).
+fn use_gpu() -> bool {
+    choice().gpu && vulkan_asset().is_some()
 }
 
 fn server_name() -> &'static str {
@@ -117,14 +150,18 @@ fn find_server(dir: &Path) -> Option<PathBuf> {
     None
 }
 
+/// CPU and Vulkan engines live side by side, switching does not re-download.
 fn engine_dir() -> Result<PathBuf, String> {
-    Ok(ai_dir()?.join(format!("llama-{ENGINE_TAG}")))
+    Ok(ai_dir()?.join(format!("llama-{ENGINE_TAG}{}", if use_gpu() { "-vulkan" } else { "" })))
 }
 
 #[derive(Serialize, Deserialize, Default)]
 struct Choice {
     model: String,
     custom_path: String,
+    /// run on the GPU (Vulkan build of the engine)
+    #[serde(default)]
+    gpu: bool,
 }
 
 enum Selected {
@@ -256,6 +293,13 @@ pub struct AiModels {
     custom_path: String,
     /// this machine's RAM, bytes (for the "fits your PC" hint)
     ram_total: u64,
+    gpu: bool,
+    /// Vulkan build exists for this OS/CPU
+    gpu_supported: bool,
+    /// the Vulkan loader is installed (video driver)
+    vulkan_found: bool,
+    /// macOS: Metal is used anyway
+    metal: bool,
 }
 
 #[tauri::command]
@@ -271,7 +315,24 @@ pub fn ai_models() -> AiModels {
         },
         custom_path: c.custom_path,
         ram_total: sys.total_memory(),
+        gpu: c.gpu,
+        gpu_supported: vulkan_asset().is_some(),
+        vulkan_found: vulkan_found(),
+        metal: cfg!(target_os = "macos"),
     }
+}
+
+/// GPU acceleration on/off. The engine for the new mode is downloaded by "Установить".
+#[tauri::command]
+pub fn ai_set_gpu(state: tauri::State<AiState>, on: bool) -> Result<(), String> {
+    if on && vulkan_asset().is_none() {
+        return Err("для этой системы сборки движка под видеокарту нет".into());
+    }
+    let mut c = choice();
+    c.gpu = on;
+    store::save_json(CHOICE_FILE, &c)?;
+    stop_server(&state);
+    Ok(())
 }
 
 /// Pick a model (`custom` + a path to a .gguf file). The running server is stopped, so the
@@ -445,7 +506,7 @@ pub fn ai_install(app: AppHandle, state: tauri::State<AiState>) -> Result<(), St
         app2.state::<AiState>().installing.lock().unwrap().take();
         match res {
             Ok(()) => {
-                log::info!("ai: engine {ENGINE_TAG} and model installed");
+                log::info!("ai: engine {ENGINE_TAG}{} and model installed", if use_gpu() { " (vulkan)" } else { "" });
                 let _ = app2.emit("ai-installed", serde_json::json!({ "ok": true }));
             }
             Err(e) => {
@@ -503,7 +564,9 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
     cmd.arg("-m")
         .arg(&model)
         .args(["--host", "127.0.0.1", "--port", &port.to_string(), "-c", "4096", "-t", &threads.to_string()])
-        .args(["-ngl", if cfg!(target_os = "macos") { "99" } else { "0" }])
+        // GPU: as many layers as fit in video memory (llama.cpp's --fit is on by default)
+        .args(["-ngl", if use_gpu() || cfg!(target_os = "macos") { "auto" } else { "0" }])
+        .args(["--reasoning-budget", "0"])
         .current_dir(bin.parent().unwrap_or(Path::new(".")))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -523,7 +586,11 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
         let dead = state.server.lock().unwrap().as_mut().is_none_or(|s| s.child.try_wait().ok().flatten().is_some());
         if dead {
             state.server.lock().unwrap().take();
-            return Err("llama-server завершился при запуске (не хватает памяти или библиотек?) — подробности: запустите его из терминала".into());
+            return Err(if use_gpu() {
+                "llama-server с видеокартой не запустился (нет драйвера Vulkan или не хватает видеопамяти?) — переключите ускорение на «Процессор» в ⚙ → Локальный ИИ".into()
+            } else {
+                "llama-server завершился при запуске (не хватает памяти или библиотек?) — подробности: запустите его из терминала".into()
+            });
         }
         if started.elapsed() > load_limit {
             if let Some(mut s) = state.server.lock().unwrap().take() {
