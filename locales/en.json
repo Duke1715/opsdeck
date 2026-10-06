@@ -1125,5 +1125,7 @@
  "🔕 Скрыть такие": "🔕 Hide these",
  "🔺 срочно": "🔺 urgent",
  "🔼 повыше": "🔼 higher",
- "🔽 низкий": "🔽 low"
+ "🔽 низкий": "🔽 low",
+ "Шрифт терминала": "Terminal font",
+ "Выберите вариант или введите название установленного моноширинного шрифта. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Если шрифт не установлен, используется запасной. Пустое поле — шрифт по умолчанию. Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.": "Choose a suggestion or enter the name of an installed monospace font. For Powerlevel10k icons, use MesloLGS NF or a Nerd Font. If the font is not installed, a fallback is used. Leave the field empty for the default font. Your choice is remembered and applies immediately to all terminals, including SSH and AI."
 }

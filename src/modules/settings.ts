@@ -5,7 +5,7 @@ import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
-import { setTermFontSize, termFontSize } from "./pty";
+import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
 import { listen } from "@tauri-apps/api/event";
 
@@ -90,6 +90,12 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
           <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
+          <label>Шрифт терминала <input class="term-font-family" list="dl-term-fonts" maxlength="128" placeholder="По умолчанию" spellcheck="false" /></label>
+          <datalist id="dl-term-fonts" data-no-i18n>
+            ${["MesloLGS NF", "JetBrainsMono Nerd Font Mono", "FiraCode Nerd Font Mono", "Hack Nerd Font Mono", "JetBrains Mono", "Fira Code", "Menlo", "Consolas", "DejaVu Sans Mono"].map((name) => `<option value="${name}"></option>`).join("")}
+          </datalist>
+          <div class="row"><button type="button" class="ghost term-font-reset">Шрифт по умолчанию</button></div>
+          <p class="muted hint">Выберите вариант или введите название установленного моноширинного шрифта. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Если шрифт не установлен, используется запасной. Пустое поле — шрифт по умолчанию. Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
@@ -155,6 +161,12 @@ export function mountSettings(root: HTMLElement) {
   fontIn.onchange = () => { if (Number(fontIn.value)) setTermFontSize(Number(fontIn.value)); syncFont(); };
   window.addEventListener("term-font", syncFont);
   syncFont();
+  const fontFamilyIn = root.querySelector<HTMLInputElement>(".term-font-family")!;
+  const syncFontFamily = () => { fontFamilyIn.value = termFontFamily(); };
+  fontFamilyIn.onchange = () => { setTermFontFamily(fontFamilyIn.value); syncFontFamily(); };
+  root.querySelector<HTMLButtonElement>(".term-font-reset")!.onclick = () => setTermFontFamily("");
+  window.addEventListener("term-font-family", syncFontFamily);
+  syncFontFamily();
   invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
   root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-log]")?.dataset.log;
