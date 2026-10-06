@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // Выпуск новой версии: npm run release -- 0.2.0 "Что нового (станет описанием релиза и окна обновления)"
+// Длинное описание в markdown — из файла: npm run release -- 0.5.0 @docs/releases/0.5.0.md
 // Поднимает версию в package.json, tauri.conf.json, Cargo.toml и Cargo.lock, коммитит,
 // ставит аннотированный тег v<версия> и пушит — GitHub Actions соберёт и опубликует релиз.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const [version, ...notesParts] = process.argv.slice(2);
-const notes = notesParts.join(" ").trim();
+const arg = notesParts.join(" ").trim();
+const notes = arg.startsWith("@") ? readFileSync(arg.slice(1), "utf8").trim() : arg;
 if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) {
   console.error('Использование: npm run release -- 0.2.0 "что нового"');
   process.exit(1);
@@ -30,7 +32,8 @@ edit("src-tauri/Cargo.lock", (s) => s.replace(/(name = "opsdeck"\nversion = )"[^
 git("add", "package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock");
 // the version may already be set (e.g. the very first release): commit only if something changed
 if (git("status", "--porcelain")) git("commit", "-m", `Release v${version}`);
-git("tag", "-a", `v${version}`, "-m", notes || `OpsDeck v${version}`);
+// verbatim: otherwise git drops lines starting with # (markdown headings)
+git("tag", "-a", "--cleanup=verbatim", `v${version}`, "-m", notes || `OpsDeck v${version}`);
 git("push");
 git("push", "origin", `v${version}`);
 console.log(`✓ v${version} отправлена. Сборка и публикация релиза: GitHub → Actions.`);
