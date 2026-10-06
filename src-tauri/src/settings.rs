@@ -20,6 +20,12 @@ pub struct Settings {
     pub k8s_include_system: bool,
     /// check GitHub Releases for a newer version at startup
     pub update_auto_check: bool,
+    /// External AI server (Ollama, vLLM, LM Studio…): used instead of the built-in
+    /// local engine when `ai_host` and `ai_model` are both set.
+    pub ai_host: String,
+    pub ai_port: String,
+    pub ai_model: String,
+    pub ai_api_key: String,
 }
 
 impl Default for Settings {
@@ -33,6 +39,10 @@ impl Default for Settings {
             winbox_path: String::new(),
             k8s_include_system: false,
             update_auto_check: true,
+            ai_host: String::new(),
+            ai_port: String::new(),
+            ai_model: String::new(),
+            ai_api_key: String::new(),
         }
     }
 }

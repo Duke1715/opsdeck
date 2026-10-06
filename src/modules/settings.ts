@@ -63,6 +63,7 @@ function mountAi(el: HTMLElement) {
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
   obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; update_auto_check: boolean;
+  ai_host: string; ai_port: string; ai_model: string; ai_api_key: string;
 };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 
@@ -95,6 +96,25 @@ export function mountSettings(root: HTMLElement) {
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
           <p class="muted hint">Модель Qwen2.5-Coder 1.5B и движок llama.cpp скачиваются отдельно (≈1,1 ГБ) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
+        <hr />
+          <div class="ai-remote">
+            <p class="muted">Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)</p>
+            <div class="ai-remote-row">
+              <label class="ai-remote-host">Адрес <input name="ai_host" spellcheck="false" placeholder="localhost" /></label>
+              <label>Порт <input name="ai_port" type="number" min="1" max="65535" placeholder="11434" /></label>
+              <label class="ai-remote-model">Модель
+                <span class="ai-model-wrap">
+                  <input name="ai_model" spellcheck="false" class="ai-model-input" placeholder="qwen2.5-coder" autocomplete="off" />
+                  <button type="button" class="ai-model-caret" data-ai-model-toggle aria-label="Список моделей">▾</button>
+                  <ul class="ai-model-list" hidden></ul>
+                </span>
+              </label>
+              <label>API-ключ <input name="ai_api_key" type="password" spellcheck="false" placeholder="необязательно" /></label>
+              <span class="spacer"></span>
+              <button type="button" class="ghost" data-ai-test>Проверить</button>
+            </div>
+            <p class="muted hint">Заполнено — запросы идут на этот сервер вместо встроенного движка (кнопка «Проверить» запрашивает список моделей). Адрес может быть и полным URL (http://…).</p>
+          </div>
         </fieldset>
         <fieldset><legend>Заметки</legend>
           <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
@@ -150,6 +170,65 @@ export function mountSettings(root: HTMLElement) {
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
   mountAi(root.querySelector<HTMLElement>(".ai-root")!);
+  // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
+  // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
+  const aiTest = (host: string, port: string, key: string) => invoke<{ models: string[] }>("ai_test", { host, port, apiKey: key });
+  const modelIn = root.querySelector<HTMLInputElement>(".ai-model-input")!;
+  const modelList = root.querySelector<HTMLElement>(".ai-model-list")!;
+  let aiModels: string[] = [];
+  const modelOpen = () => !modelList.hidden;
+  const modelClose = () => (modelList.hidden = true);
+  const modelRender = () => {
+    const q = modelIn.value.trim().toLowerCase();
+    const items = aiModels.filter((m) => !q || m.toLowerCase().includes(q));
+    if (!items.length) return modelClose(); // свободный ввод: поле остаётся обычным полем
+    modelList.innerHTML = items.map((m) => `<li data-m="${esc(m)}" class="${m === modelIn.value ? "sel" : ""}">${esc(m)}</li>`).join("");
+    modelList.hidden = false;
+  };
+  modelIn.addEventListener("blur", modelClose); // клик по любому другому полю закрывает список
+  modelIn.addEventListener("focus", () => { if (aiModels.length) modelRender(); });
+  modelIn.addEventListener("input", () => { if (aiModels.length && modelOpen()) modelRender(); });
+  modelIn.addEventListener("keydown", (e) => {
+    if (modelList.hidden || (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Escape")) return;
+    if (e.key === "Escape") return modelClose();
+    e.preventDefault();
+    const items = [...modelList.querySelectorAll<HTMLLIElement>("li[data-m]")];
+    if (!items.length) return;
+    const i = items.findIndex((li) => li.classList.contains("sel"));
+    const n = e.key === "ArrowDown" ? (i + 1) % items.length : i === -1 ? items.length - 1 : (i - 1 + items.length) % items.length;
+    items.forEach((li, k) => li.classList.toggle("sel", k === n));
+    modelIn.value = items[n].dataset.m!;
+  });
+  modelList.addEventListener("mousedown", (e) => e.preventDefault()); // не отбирать фокус с поля
+  modelList.addEventListener("click", (e) => {
+    const li = (e.target as HTMLElement).closest<HTMLElement>(".ai-model-list li[data-m]");
+    if (!li) return;
+    modelIn.value = li.dataset.m!;
+    modelClose();
+  });
+  root.querySelector<HTMLElement>("[data-ai-model-toggle]")!.addEventListener("click", (e) => {
+    e.preventDefault();
+    modelRender();
+    modelIn.focus();
+  });
+  const fillAiModels = (models: string[]) => {
+    aiModels = models;
+    if (modelOpen()) modelRender();
+  };
+  root.querySelector<HTMLElement>("[data-ai-test]")!.addEventListener("click", async (e) => {
+    const out = root.querySelector<HTMLElement>(".ai-remote .hint")!;
+    e.preventDefault();
+    const old = out.textContent!;
+    out.textContent = "проверяю…";
+    const r = await aiTest(f("ai_host").value, f("ai_port").value, f("ai_api_key").value).catch((err) => String(err));
+    if (typeof r === "string") {
+      out.textContent = old;
+      toast(`Внешний ИИ: ${r}`, "err");
+      return;
+    }
+    fillAiModels(r.models);
+    out.textContent = `сервер отвечает · моделей: ${r.models.length ? r.models.join(", ") : "(список пуст)"}`;
+  });
   const fontIn = root.querySelector<HTMLInputElement>(".term-font")!;
   const syncFont = () => { fontIn.value = String(termFontSize()); };
   fontIn.onchange = () => { if (Number(fontIn.value)) setTermFontSize(Number(fontIn.value)); syncFont(); };
@@ -175,6 +254,9 @@ export function mountSettings(root: HTMLElement) {
       if (typeof s[k] === "boolean") f(k).checked = s[k] as boolean;
       else f(k).value = String(s[k] ?? "");
     }
+    if (s.ai_host) { // модели из внешнего сервера в список выбора (тихо, фон)
+      aiTest(s.ai_host, s.ai_port, s.ai_api_key).then((r) => fillAiModels(r.models)).catch(() => {});
+    }
     root.querySelector(".detect-state")!.textContent = "ищу варианты в домашней папке…";
     const d = await invoke<Detected>("settings_detect").catch(() => null);
     root.querySelector(".detect-state")!.textContent = "";
@@ -194,6 +276,8 @@ export function mountSettings(root: HTMLElement) {
       obsidian_vault: f("obsidian_vault").value.trim(), winbox_path: f("winbox_path").value.trim(),
       k8s_include_system: f("k8s_include_system").checked,
       update_auto_check: f("update_auto_check").checked,
+      ai_host: f("ai_host").value.trim(), ai_port: f("ai_port").value.trim(), ai_model: f("ai_model").value.trim(),
+      ai_api_key: f("ai_api_key").value.trim(),
     };
     try {
       await invoke("settings_set", { settings });

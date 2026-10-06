@@ -1125,5 +1125,17 @@
  "🔕 Скрыть такие": "🔕 Hide these",
  "🔺 срочно": "🔺 urgent",
  "🔼 повыше": "🔼 higher",
- "🔽 низкий": "🔽 low"
+ "🔽 низкий": "🔽 low",
+ "Модель": "Model",
+ "Список моделей": "Model list",
+ "API-ключ": "API key",
+ "Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)": "External AI server (Ollama, vLLM, LM Studio — anything OpenAI-/v1-compatible)",
+ "Заполнено — запросы идут на этот сервер вместо встроенного движка (кнопка «Проверить» запрашивает список моделей). Адрес может быть и полным URL (http://…).": "When filled in — requests go to this server instead of the built-in engine («Check» fetches the model list). Address can also be a full URL (http://…)",
+ "Внешний ИИ: {}": "External AI: {}",
+ "сервер отвечает · модели: {}": "server responds · models: {}",
+ "(список пуст)": "(list is empty)",
+ "сервер ИИ не ответил: {}": "AI server did not respond: {}",
+ "укажите адрес сервера": "specify the server's address",
+ "нет ответа из {}: {}": "no response from {}: {}",
+ "сервер {}: HTTP {}": "server {}: HTTP {}"
 }

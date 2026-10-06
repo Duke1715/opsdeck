@@ -3,7 +3,10 @@
 //! the background on first use and stopped after a while without requests.
 //! Used to turn a request in plain words into a shell command, with the user's notes as context.
 
-use crate::store::err;
+use crate::{
+    settings::{self, Settings},
+    store::err,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -374,6 +377,99 @@ pub fn spawn_idle_stop(app: AppHandle) {
     });
 }
 
+// ---------------------------------------------------------------- providers
+
+/// Кто отвечает на запросы: встроенный llama-server или внешний сервер
+/// (Ollama, vLLM, LM Studio, OpenAI — любой с OpenAI-совместимым /v1).
+#[derive(Clone, Debug)]
+pub enum AiProvider {
+    Local,
+    Remote { base: String, model: String, api_key: String },
+}
+
+/// Базовый URL внешнего сервера: `http://host:port` (полный URL — как есть).
+/// Порт по умолчанию Ollama (11434), если порт пустой или не число.
+pub fn remote_base(host: &str, port: &str) -> Option<String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return None;
+    }
+    Some(if host.starts_with("http://") || host.starts_with("https://") {
+        host.trim_end_matches('/').to_string()
+    } else {
+        format!("http://{host}:{}", port.trim().parse::<u16>().unwrap_or(11434))
+    })
+}
+
+/// Настройки → провайдер: заполнены адрес и модель — внешний сервер,
+/// иначе — встроенный движок.
+pub fn provider_for(s: &Settings) -> AiProvider {
+    if let (Some(base), model) = (remote_base(&s.ai_host, &s.ai_port), s.ai_model.trim()) {
+        if !model.is_empty() {
+            return AiProvider::Remote { base, model: model.to_string(), api_key: s.ai_api_key.trim().to_string() };
+        }
+    }
+    AiProvider::Local
+}
+
+/// Системная инструкция: из plain-words запроса — одна shell-команда.
+const SYSTEM_PROMPT: &str = "Ты помощник DevOps-инженера в терминале. На запрос отвечай ровно одной командой shell (можно с | и &&), без пояснений, без markdown и без $ в начале. Если в контексте есть похожие команды пользователя — бери оттуда имена хостов, неймспейсов, контекстов и флаги. Не придумывай опасных команд (rm -rf /, удаление без запроса).";
+
+/// One chat completion at an OpenAI-compatible `/v1/chat/completions`
+/// (Ollama, llama.cpp, vLLM… share this API).
+async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &str) -> Result<String, String> {
+    let mut body = serde_json::json!({
+        "messages": [
+            { "role": "system", "content": SYSTEM_PROMPT },
+            { "role": "user", "content": user }
+        ],
+        "temperature": 0.1,
+        "max_tokens": 160,
+        "stream": false
+    });
+    if let Some(m) = model {
+        body["model"] = serde_json::json!(m); // локальный llama-server на это не смотрит
+    }
+    let mut req = reqwest::Client::new().post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
+    if !api_key.is_empty() {
+        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"));
+    }
+    let resp: serde_json::Value = req
+        .send()
+        .await
+        .map_err(|e| format!("сервер ИИ не ответил: {e}"))?
+        .json()
+        .await
+        .map_err(err)?;
+    Ok(resp["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
+}
+
+/// Проверка связи с внешним сервером: список моделей из `/v1/models`.
+#[derive(Serialize)]
+pub struct AiTest {
+    models: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn ai_test(host: String, port: String, api_key: String) -> Result<AiTest, String> {
+    let base = remote_base(&host, &port).ok_or("укажите адрес сервера")?;
+    let mut req = reqwest::Client::new().get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
+    if !api_key.trim().is_empty() {
+        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", api_key.trim()));
+    }
+    let resp = req.send().await.map_err(|e| format!("нет ответа из {base}: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("сервер {base}: HTTP {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(err)?;
+    // Ollama и llama-server отвечают {"data": [{"id": …}]}
+    let models = v["data"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|m| m["id"].as_str().or_else(|| m["name"].as_str())).map(str::to_string).collect())
+        .unwrap_or_default();
+    Ok(AiTest { models })
+}
+
 #[derive(Serialize)]
 pub struct AiAnswer {
     command: String,
@@ -387,7 +483,6 @@ pub struct AiAnswer {
 pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, recent: Vec<String>, shell: Option<String>) -> Result<AiAnswer, String> {
     let started = Instant::now();
     let notes = crate::cmdindex::related(&request, 8).await;
-    let port = ensure_server(&app).await?;
     let mut context = String::new();
     if let Some(c) = cwd.filter(|c| !c.is_empty()) {
         context += &format!("Текущая папка: {c}\n");
@@ -405,29 +500,21 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
             context += &format!("  {n}\n");
         }
     }
-    let body = serde_json::json!({
-        "messages": [
-            { "role": "system", "content": "Ты помощник DevOps-инженера в терминале. На запрос отвечай ровно одной командой shell (можно с | и &&), без пояснений, без markdown и без $ в начале. Если в контексте есть похожие команды пользователя — бери оттуда имена хостов, неймспейсов, контекстов и флаги. Не придумывай опасных команд (rm -rf /, удаление без запроса)." },
-            { "role": "user", "content": format!("{context}\nЗапрос: {request}") }
-        ],
-        "temperature": 0.1,
-        "max_tokens": 160,
-        "stream": false
-    });
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post(format!("http://127.0.0.1:{port}/v1/chat/completions"))
-        .timeout(Duration::from_secs(120))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("локальный ИИ не ответил: {e}"))?
-        .json()
-        .await
-        .map_err(err)?;
-    if let Some(s) = app.state::<AiState>().server.lock().unwrap().as_mut() {
-        s.last_used = Instant::now();
+    let user = format!("{context}\nЗапрос: {request}");
+    let provider = provider_for(&settings::current().await);
+    let (base, model, key) = match &provider {
+        AiProvider::Local => {
+            let port = ensure_server(&app).await?;
+            (format!("http://127.0.0.1:{port}"), None, String::new())
+        }
+        AiProvider::Remote { base, model, api_key } => (base.clone(), Some(model.clone()), api_key.clone()),
+    };
+    let raw = chat_completion(&base, &key, model.as_deref(), &user).await?;
+    if matches!(provider, AiProvider::Local) {
+        if let Some(s) = app.state::<AiState>().server.lock().unwrap().as_mut() {
+            s.last_used = Instant::now();
+        }
     }
-    let raw = resp["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
     Ok(AiAnswer { command: clean_command(&raw), from_notes: notes, elapsed_ms: started.elapsed().as_millis() as u64 })
 }
 
@@ -448,6 +535,39 @@ fn clean_command(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::settings::Settings;
+
+    fn settings(host: &str, port: &str, model: &str, key: &str) -> Settings {
+        let mut s = Settings::default();
+        s.ai_host = host.into();
+        s.ai_port = port.into();
+        s.ai_model = model.into();
+        s.ai_api_key = key.into();
+        s
+    }
+
+    #[test]
+    fn base_url() {
+        assert_eq!(remote_base("192.168.1.10", "11434"), Some("http://192.168.1.10:11434".into()));
+        assert_eq!(remote_base("localhost", ""), Some("http://localhost:11434".into()));
+        assert_eq!(remote_base("host", "нет"), Some("http://host:11434".into()));
+        assert_eq!(remote_base("http://x.local/", ""), Some("http://x.local".into()));
+        assert_eq!(remote_base("  ", ""), None);
+    }
+
+    #[test]
+    fn provider() {
+        assert!(matches!(provider_for(&settings("", "", "", "")), AiProvider::Local));
+        assert!(matches!(provider_for(&settings("h", "", "", "")), AiProvider::Local)); // нет модели
+        match provider_for(&settings("10.0.0.2", "9999", " qwen ", " sk ")) {
+            AiProvider::Remote { base, model, api_key } => {
+                assert_eq!((base.as_str(), model.as_str(), api_key.as_str()), ("http://10.0.0.2:9999", "qwen", "sk"));
+            }
+            _ => panic!("remote"),
+        }
+    }
+
     #[test]
     fn clean() {
         assert_eq!(super::clean_command("```bash\n$ kubectl get pods -n prod\n```"), "kubectl get pods -n prod");

@@ -280,6 +280,7 @@ dialog.mt-dialog { width: 560px; }
 .settings fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px;
   display: flex; flex-direction: column; gap: 10px; }
 .settings legend { padding: 0 6px; color: var(--accent); }
+.settings fieldset hr { align-self: stretch; border: 0; border-top: 1px solid var(--border); margin: 0; }
 .settings label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 
 /* notes tree */
@@ -868,6 +869,19 @@ dialog.task-dialog { width: 520px; }
 .aa-meta { font-size: 11.5px; margin-left: auto; }
 .ai-field .small-path { font-size: 11px; word-break: break-all; }
 .ai-stage { font-size: 12px; }
+.ai-remote-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 4px 0; }
+.ai-remote-row label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.ai-remote-row input { width: 130px; }
+.ai-remote-row .ai-remote-host input { width: 170px; }
+.ai-remote-row .ai-remote-model { min-width: 200px; }
+.ai-model-wrap { position: relative; display: flex; width: 100%; }
+.ai-model-wrap .ai-model-input { flex: 1; width: auto; min-width: 0; }
+.ai-model-caret { flex: none; border-color: transparent; background: transparent; cursor: pointer; font-size: 12px; color: var(--muted); }
+.ai-model-list { position: absolute; top: calc(100% + 2px); left: 0; right: 0; margin: 0; padding: 2px 0; list-style: none;
+  max-height: 220px; overflow-y: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+  z-index: 30; box-shadow: 0 6px 20px rgba(0, 0, 0, .45); font-size: 12px; }
+.ai-model-list li { padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-model-list li.sel { background: var(--accent); color: var(--accent-ink); }
 .settings .about { font-size: 12px; margin-top: 4px; }
 .settings .about a { color: var(--muted); text-decoration: underline dotted; }
 .settings .about a:hover { color: var(--accent); }

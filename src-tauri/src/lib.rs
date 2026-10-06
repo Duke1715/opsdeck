@@ -146,6 +146,7 @@ pub fn run() {
             ai::ai_cancel,
             ai::ai_remove,
             ai::ai_command,
+            ai::ai_test,
             cmdindex::cmd_suggest,
             db::db_list,
             db::db_save,
