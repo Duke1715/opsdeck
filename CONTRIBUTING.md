@@ -2,7 +2,7 @@
 
 Спасибо, что хотите помочь! Ошибки, идеи и pull request'ы приветствуются.
 
-> *English:* issues and PRs in English are welcome too. Short version: fork → branch → `npx tsc` + `cargo check` + `cargo test` pass → PR to `master` with a description of what and why.
+> *English:* issues and PRs in English are welcome too. Short version: fork → branch → `npx tsc` + `cargo check` + `cargo test` pass → PR to `dev` with a description of what and why.
 
 ## Сообщить об ошибке или предложить идею
 
@@ -12,7 +12,7 @@
 
 ## Как прислать изменения
 
-1. Сделайте форк и ветку от `master`: `git switch -c fix/terminal-tabs`.
+1. Сделайте форк и ветку от `dev`: `git switch -c fix/terminal-tabs`.
 2. Соберите и запустите (нужны Rust stable и Node.js 20+, на Linux — системные библиотеки из [README](README.md#сборка-из-исходников)):
    ```bash
    npm install
@@ -23,7 +23,7 @@
    npx tsc                                  # типы TypeScript
    cd src-tauri && cargo check && cargo test --lib
    ```
-4. Откройте PR в `master`. Заполните шаблон: что изменилось и зачем, как проверяли. CI соберёт linux-x64 и прогонит проверки; для первого PR сборку запустит мейнтейнер после просмотра.
+4. Откройте PR в ветку `dev` (в `master` попадает только то, что уходит в релиз). Заполните шаблон: что изменилось и зачем, как проверяли. CI соберёт linux-x64 и прогонит проверки; для первого PR сборку запустит мейнтейнер после просмотра.
 
 Один PR — одна задача: так его проще проверить и быстрее влить. Большие изменения лучше сначала обсудить в issue.
 
