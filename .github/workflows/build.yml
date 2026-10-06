@@ -1,6 +1,8 @@
 # Сборка OpsDeck на нативных раннерах (своя ОС и архитектура, без кросс-компиляции).
-# Пуш в main/master и PR — быстрая проверка: только linux-x64 (+ артефакт в Actions).
-# Тег v* (удобнее через `npm run release -- 0.2.0 "что нового"`) и ручной запуск — все 5 платформ
+# Пуш в main/master и PR в master — быстрая проверка: только linux-x64 (+ артефакт в Actions).
+# Ветка dev (внешние PR) сама не собирается — экономим минуты; проверка — вручную:
+# Actions → build → Run workflow → ветка dev.
+# Тег v* (удобнее через `npm run release -- 0.2.0 "что нового"`) и ручной запуск с галкой — все 5 платформ
 # (Linux x64/arm64, Windows x64, macOS arm64/x64; Windows ARM не собирается — слишком мало пользователей);
 # на теге релиз собирается черновиком и публикуется последним шагом, только если прошли
 # и проверки, и все сборки (с подписанными файлами обновлений latest.json).
@@ -8,15 +10,16 @@ name: build
 
 on:
   push:
-    branches: [main, master, dev]
+    branches: [main, master]
     tags: ["v*"]
   pull_request:
+    branches: [main, master]
   workflow_dispatch:
     inputs:
       all_platforms:
         description: "Собрать все 5 платформ (иначе только linux-x64)"
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: build-${{ github.ref }}
