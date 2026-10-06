@@ -153,6 +153,7 @@ pub fn run() {
             ai::ai_set_gpu,
             ai::ai_command,
             ai::ai_test,
+            settings::ai_key_clear,
             cmdindex::cmd_suggest,
             db::db_list,
             db::db_save,

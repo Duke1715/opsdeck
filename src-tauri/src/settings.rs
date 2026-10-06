@@ -25,7 +25,13 @@ pub struct Settings {
     pub ai_host: String,
     pub ai_port: String,
     pub ai_model: String,
+    /// Comes from the UI when the user types a new key; kept in the OS keyring, never written to
+    /// settings.json and never sent back to the UI.
+    #[serde(skip_serializing)]
     pub ai_api_key: String,
+    /// for the UI: a key is saved in the keyring
+    #[serde(skip_deserializing)]
+    pub ai_key_saved: bool,
 }
 
 impl Default for Settings {
@@ -43,6 +49,7 @@ impl Default for Settings {
             ai_port: String::new(),
             ai_model: String::new(),
             ai_api_key: String::new(),
+            ai_key_saved: false,
         }
     }
 }
@@ -56,8 +63,28 @@ pub async fn settings_get() -> Settings {
     tauri::async_runtime::spawn_blocking(filled).await.unwrap_or_default()
 }
 
+/// Keyring entry of the external AI server's API key.
+const AI_KEY: &str = "ai-api-key";
+
+/// The external AI server's API key ("" when none).
+pub fn ai_api_key() -> String {
+    store::secret_get(AI_KEY).unwrap_or_default()
+}
+
+/// Forget the external AI server's API key.
+#[tauri::command]
+pub fn ai_key_clear() {
+    store::secret_delete(AI_KEY);
+}
+
 fn filled() -> Settings {
     let mut s = load();
+    // a key saved in plain text by an earlier build: move it to the keyring
+    if !s.ai_api_key.trim().is_empty() && store::secret_set(AI_KEY, s.ai_api_key.trim()).is_ok() {
+        s.ai_api_key.clear();
+        let _ = store::save_json(FILE, &s);
+    }
+    s.ai_key_saved = store::secret_get(AI_KEY).is_some();
     // first run: pre-fill from what's on disk so things work without visiting settings
     if s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty() {
         let d = detect();
@@ -83,6 +110,11 @@ pub async fn current() -> Settings {
 
 #[tauri::command]
 pub fn settings_set(settings: Settings) -> Result<(), String> {
+    // a newly typed key goes to the keyring; an empty field keeps the saved one
+    let key = settings.ai_api_key.trim();
+    if !key.is_empty() {
+        store::secret_set(AI_KEY, key).map_err(|e| format!("не удалось сохранить API-ключ в хранилище паролей: {e}"))?;
+    }
     store::save_json(FILE, &settings)
 }
 

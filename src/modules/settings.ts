@@ -123,7 +123,9 @@ function mountAi(el: HTMLElement) {
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
   obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; update_auto_check: boolean;
-  ai_host: string; ai_port: string; ai_model: string; ai_api_key: string;
+  ai_host: string; ai_port: string; ai_model: string;
+  /** only sent when the user typed a new key; the saved one stays in the OS keyring */
+  ai_api_key?: string; ai_key_saved?: boolean;
 };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 
@@ -173,11 +175,13 @@ export function mountSettings(root: HTMLElement) {
                   <ul class="ai-model-list" hidden></ul>
                 </span>
               </label>
-              <label>API-ключ <input name="ai_api_key" type="password" spellcheck="false" placeholder="необязательно" /></label>
+              <label>API-ключ <input name="ai_api_key" type="password" spellcheck="false" placeholder="необязательно" autocomplete="off" /></label>
+              <button type="button" class="ghost" data-ai-key-clear hidden title="Удалить сохранённый ключ из хранилища паролей">Забыть ключ</button>
               <span class="spacer"></span>
               <button type="button" class="ghost" data-ai-test>Проверить</button>
             </div>
-            <p class="muted hint">Заполнено — запросы идут на этот сервер вместо встроенного движка (кнопка «Проверить» запрашивает список моделей). Адрес может быть и полным URL (http://…).</p>
+            <p class="muted hint">Заполнено — запросы идут на этот сервер вместо встроенного движка (кнопка «Проверить» запрашивает список моделей). Адрес может быть и полным URL (http://…). API-ключ хранится в системном хранилище паролей.</p>
+            <p class="muted hint warn ai-remote-warn" hidden></p>
           </div>
         </fieldset>
         <fieldset><legend>Заметки</legend>
@@ -350,12 +354,15 @@ export function mountSettings(root: HTMLElement) {
   async function load() {
     const s = await invoke<Settings>("settings_get");
     for (const k of Object.keys(s) as (keyof Settings)[]) {
+      if (!f(k)) continue; // ai_key_saved: not a form field
       if (typeof s[k] === "boolean") f(k).checked = s[k] as boolean;
       else f(k).value = String(s[k] ?? "");
     }
-    if (s.ai_host) { // модели из внешнего сервера в список выбора (тихо, фон)
-      aiTest(s.ai_host, s.ai_port, s.ai_api_key).then((r) => fillAiModels(r.models)).catch(() => {});
-    }
+    // the key itself never comes back from the backend: show whether one is saved
+    f("ai_api_key").value = "";
+    f("ai_api_key").placeholder = s.ai_key_saved ? "сохранён — введите новый, чтобы заменить" : "необязательно";
+    root.querySelector<HTMLElement>("[data-ai-key-clear]")!.hidden = !s.ai_key_saved;
+    remoteWarn();
     root.querySelector(".detect-state")!.textContent = "ищу варианты в домашней папке…";
     const d = await invoke<Detected>("settings_detect").catch(() => null);
     root.querySelector(".detect-state")!.textContent = "";
@@ -381,9 +388,33 @@ export function mountSettings(root: HTMLElement) {
     try {
       await invoke("settings_set", { settings });
       toast("Настройки сохранены");
+      load();
       window.dispatchEvent(new Event("settings-changed"));
     } catch (err) { toast(String(err), "err"); }
   };
+
+  // external AI server: say plainly that requests leave the computer, and warn about plain http
+  function remoteWarn() {
+    const host = f("ai_host").value.trim(), model = f("ai_model").value.trim();
+    const warn = root.querySelector<HTMLElement>(".ai-remote-warn")!;
+    if (!host || !model) { warn.hidden = true; return; }
+    const url = /^https?:\/\//.test(host) ? host : `http://${host}:${f("ai_port").value.trim() || "11434"}`;
+    let hostname = host;
+    try { hostname = new URL(url).hostname; } catch { /* keep as typed */ }
+    const local = /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i.test(hostname);
+    // separate spans: each sentence is translated on its own
+    warn.innerHTML = `<span>${local ? `Запросы ИИ идут на сервер на этом компьютере (${esc(url)}), встроенный движок не используется.`
+      : `Запросы ИИ уходят на сервер ${esc(url)}: вместе с ними — команды из ваших заметок, недавние команды и текущая папка. Встроенный движок не используется.`}</span>`
+      + (!local && url.startsWith("http://") ? ` <span>Соединение без шифрования: ключ и данные видны в сети — используйте https или сервер в доверенной сети.</span>` : "");
+    warn.hidden = false;
+  }
+  for (const n of ["ai_host", "ai_port", "ai_model"] as const) f(n).addEventListener("input", remoteWarn);
+  root.querySelector<HTMLElement>("[data-ai-key-clear]")!.addEventListener("click", async () => {
+    if ((await ask("Забыть API-ключ", "Удалить сохранённый ключ внешнего ИИ-сервера из хранилища паролей?", { ok: "Удалить", danger: true })) === null) return;
+    await invoke("ai_key_clear").catch(() => {});
+    toast("Ключ удалён");
+    load();
+  });
 
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "settings") load(); });
 }

@@ -706,7 +706,9 @@ pub fn remote_base(host: &str, port: &str) -> Option<String> {
 pub fn provider_for(s: &Settings) -> AiProvider {
     if let (Some(base), model) = (remote_base(&s.ai_host, &s.ai_port), s.ai_model.trim()) {
         if !model.is_empty() {
-            return AiProvider::Remote { base, model: model.to_string(), api_key: s.ai_api_key.trim().to_string() };
+            // the key lives in the OS keyring; `ai_api_key` is only set for a key typed just now (and in tests)
+            let key = if s.ai_api_key.trim().is_empty() { settings::ai_api_key() } else { s.ai_api_key.trim().to_string() };
+            return AiProvider::Remote { base, model: model.to_string(), api_key: key };
         }
     }
     AiProvider::Local
@@ -718,6 +720,7 @@ const SYSTEM_PROMPT: &str = "Ты помощник DevOps-инженера в т
 /// One chat completion at an OpenAI-compatible `/v1/chat/completions`
 /// (Ollama, llama.cpp, vLLM… share this API).
 async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &str) -> Result<String, String> {
+    let remote = model.is_some();
     let mut body = serde_json::json!({
         "messages": [
             { "role": "system", "content": SYSTEM_PROMPT },
@@ -730,6 +733,11 @@ async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &
     if let Some(m) = model {
         body["model"] = serde_json::json!(m); // локальный llama-server на это не смотрит
     }
+    if !remote {
+        // Qwen3.x think aloud by default: a command is needed, not reasoning. Only for our own
+        // llama-server: OpenAI's API rejects unknown fields (a remote model's <think> is cut by clean_command)
+        body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
+    }
     let mut req = reqwest::Client::new().post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
     if !api_key.is_empty() {
         req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"));
@@ -737,7 +745,7 @@ async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &
     let resp: serde_json::Value = req
         .send()
         .await
-        .map_err(|e| format!("сервер ИИ не ответил: {e}"))?
+        .map_err(|e| if remote { format!("сервер ИИ не ответил: {e}") } else { format!("локальный ИИ не ответил: {e}") })?
         .json()
         .await
         .map_err(err)?;
@@ -754,8 +762,10 @@ pub struct AiTest {
 pub async fn ai_test(host: String, port: String, api_key: String) -> Result<AiTest, String> {
     let base = remote_base(&host, &port).ok_or("укажите адрес сервера")?;
     let mut req = reqwest::Client::new().get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
-    if !api_key.trim().is_empty() {
-        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", api_key.trim()));
+    // the field is empty when the key is already saved: use the saved one
+    let key = if api_key.trim().is_empty() { settings::ai_api_key() } else { api_key.trim().to_string() };
+    if !key.is_empty() {
+        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {key}"));
     }
     let resp = req.send().await.map_err(|e| format!("нет ответа из {base}: {e}"))?;
     if !resp.status().is_success() {
