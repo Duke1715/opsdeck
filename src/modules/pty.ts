@@ -24,9 +24,27 @@ function b64(s: string): Uint8Array {
   return out;
 }
 
-// ---------- font size (one for all local/SSH terminals, remembered) ----------
+// ---------- font preferences (shared by all local/SSH and AI terminals) ----------
 
 const FONT_KEY = "opsdeck.term.fontSize";
+const FONT_FAMILY_KEY = "opsdeck.term.fontFamily";
+const FONT_FALLBACK = "'JetBrains Mono', 'Fira Code', monospace";
+const cleanFontFamily = (name: string) => name.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 128);
+
+/** Empty means the original default font stack; custom names are a single CSS family. */
+export function termFontFamily(): string {
+  try { return cleanFontFamily(localStorage.getItem(FONT_FAMILY_KEY) ?? ""); } catch { return ""; }
+}
+
+function termFontStack(name = termFontFamily()): string {
+  return name ? `"${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}", ${FONT_FALLBACK}` : FONT_FALLBACK;
+}
+
+export function setTermFontFamily(name: string) {
+  const value = cleanFontFamily(name);
+  try { localStorage.setItem(FONT_FAMILY_KEY, value); } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent("term-font-family", { detail: value }));
+}
 export const TERM_FONT_DEFAULT = 13;
 const clampFont = (n: number) => Math.min(32, Math.max(8, Math.round(n)));
 
@@ -52,7 +70,7 @@ export const termFontStep = (d: number) => setTermFontSize(d === 0 ? TERM_FONT_D
 export class PtyTerminal {
   readonly id = `pty${++seq}`;
   readonly term = new Terminal({
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: termFontSize(), cursorBlink: true,
+    fontFamily: termFontStack(), fontSize: termFontSize(), cursorBlink: true,
     scrollback: 20000, theme, allowProposedApi: true, overviewRulerWidth: 8,
   });
   /** Command blocks (only populated when the shell integration is active). */
@@ -70,6 +88,10 @@ export class PtyTerminal {
     this.term.options.fontSize = (e as CustomEvent<number>).detail;
     this.resize();
   };
+  private onFontFamily = (e: Event) => {
+    this.term.options.fontFamily = termFontStack((e as CustomEvent<string>).detail);
+    this.resize();
+  };
   private unlisten: UnlistenFn[] = [];
   private ro: ResizeObserver;
   onExit?: () => void;
@@ -81,6 +103,7 @@ export class PtyTerminal {
     this.inHl.setEnabled(this.hl.input);
     window.addEventListener("term-highlight", this.onHl);
     window.addEventListener("term-font", this.onFont);
+    window.addEventListener("term-font-family", this.onFontFamily);
     // Ctrl+wheel: font size
     host.addEventListener("wheel", (e) => {
       if (!e.ctrlKey) return;
@@ -161,6 +184,7 @@ export class PtyTerminal {
     this.ro.disconnect();
     window.removeEventListener("term-highlight", this.onHl);
     window.removeEventListener("term-font", this.onFont);
+    window.removeEventListener("term-font-family", this.onFontFamily);
     this.sugg.dispose();
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });

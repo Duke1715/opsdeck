@@ -251,7 +251,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     html: `
       <ul><li><b>Language</b>: “System” follows the system locale; Russian or English can be chosen explicitly. The interface reloads when it changes.</li>
       <li><b>Icon order</b> in the left column is changed by dragging with the mouse and is remembered (⚙ always stays at the bottom).</li>
-      <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size.</li>
+      <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size and family. Enter the name of an installed monospace font; choose MesloLGS NF or a Nerd Font for Powerlevel10k icons. The choice applies immediately to all terminals and is remembered. An empty field restores the default font.</li>
       <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>
       <li>Paths to the KeePass database, the notes folder and WinBox are filled in automatically if found in the home folder (candidates — in the field's dropdown).</li>
       <li><b>Kubernetes</b>: by default OpsDeck works only with its own kubeconfig copies; the checkbox also shows the shared ~/.kube/config.</li>
