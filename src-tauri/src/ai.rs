@@ -154,6 +154,9 @@ fn find_server(dir: &Path) -> Option<PathBuf> {
 fn engine_dir() -> Result<PathBuf, String> {
     Ok(ai_dir()?.join(format!("llama-{ENGINE_TAG}{}", if use_gpu() { "-vulkan" } else { "" })))
 }
+fn cpu_engine_dir() -> Result<PathBuf, String> {
+    Ok(ai_dir()?.join(format!("llama-{ENGINE_TAG}")))
+}
 
 #[derive(Serialize, Deserialize, Default)]
 struct Choice {
@@ -222,6 +225,8 @@ pub struct AiState {
     server: Mutex<Option<Server>>,
     /// a download in progress (cancel flag)
     installing: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+    /// the GPU did not start this session: run on the CPU (reset when acceleration is switched)
+    gpu_failed: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for AiState {
@@ -300,10 +305,12 @@ pub struct AiModels {
     vulkan_found: bool,
     /// macOS: Metal is used anyway
     metal: bool,
+    /// the GPU did not start this session, the model runs on the CPU
+    gpu_failed: bool,
 }
 
 #[tauri::command]
-pub fn ai_models() -> AiModels {
+pub fn ai_models(state: tauri::State<AiState>) -> AiModels {
     let c = choice();
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
@@ -319,6 +326,7 @@ pub fn ai_models() -> AiModels {
         gpu_supported: vulkan_asset().is_some(),
         vulkan_found: vulkan_found(),
         metal: cfg!(target_os = "macos"),
+        gpu_failed: state.gpu_failed.load(std::sync::atomic::Ordering::Relaxed),
     }
 }
 
@@ -331,6 +339,7 @@ pub fn ai_set_gpu(state: tauri::State<AiState>, on: bool) -> Result<(), String> 
     let mut c = choice();
     c.gpu = on;
     store::save_json(CHOICE_FILE, &c)?;
+    state.gpu_failed.store(false, std::sync::atomic::Ordering::Relaxed);
     stop_server(&state);
     Ok(())
 }
@@ -551,30 +560,66 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
             *g = None; // it died: start again
         }
     }
-    let bin = engine_dir().ok().and_then(|d| find_server(&d)).ok_or("локальный ИИ не установлен — ⚙ Настройки → Локальный ИИ")?;
     let model = model_path()?;
     if !model_ready() {
         return Err("модель не скачана — ⚙ Настройки → Локальный ИИ".into());
     }
+    let gpu = use_gpu() && !state.gpu_failed.load(std::sync::atomic::Ordering::Relaxed);
+    let bin = engine_dir().ok().and_then(|d| find_server(&d)).ok_or("локальный ИИ не установлен — ⚙ Настройки → Локальный ИИ")?;
+    if !gpu {
+        return launch(app, &bin, &model, Device::Default).await;
+    }
+    match launch(app, &bin, &model, Device::Gpu).await {
+        Ok(port) => Ok(port),
+        Err(e) => {
+            // the GPU did not work out (no driver, no device, too little video memory):
+            // run on the CPU instead, until acceleration is switched again in Settings
+            log::warn!("ai: GPU start failed ({e}), falling back to CPU");
+            state.gpu_failed.store(true, std::sync::atomic::Ordering::Relaxed);
+            let cpu_bin = cpu_engine_dir().ok().and_then(|d| find_server(&d)).unwrap_or(bin);
+            let port = launch(app, &cpu_bin, &model, Device::Cpu).await.map_err(|e| {
+                format!("видеокарта недоступна, а на процессоре модель тоже не запустилась ({e}) — выберите «Процессор» в ⚙ → Локальный ИИ и нажмите «Установить»")
+            })?;
+            let _ = app.emit("ai-fallback", ());
+            Ok(port)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Device {
+    /// CPU, or Metal on macOS
+    Default,
+    Gpu,
+    /// CPU only, even with a GPU build of the engine
+    Cpu,
+}
+
+/// Start llama-server and wait until the model is loaded.
+async fn launch(app: &AppHandle, bin: &Path, model: &Path, device: Device) -> Result<u16, String> {
+    let state = app.state::<AiState>();
     // big models take a while to read from disk: ~15 s per GB on top of the base 90 s
     let load_limit = Duration::from_secs(90 + model.metadata().map(|m| m.len() / 1_073_741_824 * 15).unwrap_or(0));
     let port = free_port()?;
     let threads = std::thread::available_parallelism().map(|n| n.get().clamp(2, 8)).unwrap_or(4);
-    let mut cmd = Command::new(&bin);
+    let mut cmd = Command::new(bin);
     cmd.arg("-m")
-        .arg(&model)
+        .arg(model)
         .args(["--host", "127.0.0.1", "--port", &port.to_string(), "-c", "4096", "-t", &threads.to_string()])
-        // GPU: as many layers as fit in video memory (llama.cpp's --fit is on by default)
-        .args(["-ngl", if use_gpu() || cfg!(target_os = "macos") { "auto" } else { "0" }])
         .args(["--reasoning-budget", "0"])
         .current_dir(bin.parent().unwrap_or(Path::new(".")))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    match device {
+        // as many layers as fit in video memory (llama.cpp's --fit is on by default)
+        Device::Gpu => cmd.args(["-ngl", "auto"]),
+        Device::Cpu => cmd.args(["-ngl", "0", "--device", "none"]),
+        Device::Default => cmd.args(["-ngl", if cfg!(target_os = "macos") { "auto" } else { "0" }]),
+    };
     process::no_console(&mut cmd);
     let child = cmd.spawn().map_err(|e| format!("не удалось запустить llama-server: {e}"))?;
     *state.server.lock().unwrap() = Some(Server { child, port, last_used: Instant::now() });
-    // wait for the model to load
     let client = reqwest::Client::new();
     let started = Instant::now();
     loop {
@@ -586,11 +631,7 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
         let dead = state.server.lock().unwrap().as_mut().is_none_or(|s| s.child.try_wait().ok().flatten().is_some());
         if dead {
             state.server.lock().unwrap().take();
-            return Err(if use_gpu() {
-                "llama-server с видеокартой не запустился (нет драйвера Vulkan или не хватает видеопамяти?) — переключите ускорение на «Процессор» в ⚙ → Локальный ИИ".into()
-            } else {
-                "llama-server завершился при запуске (не хватает памяти или библиотек?) — подробности: запустите его из терминала".into()
-            });
+            return Err("llama-server завершился при запуске (не хватает памяти или библиотек?) — подробности: запустите его из терминала".into());
         }
         if started.elapsed() > load_limit {
             if let Some(mut s) = state.server.lock().unwrap().take() {

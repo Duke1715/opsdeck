@@ -14,7 +14,7 @@ const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
 const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
-type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean };
 // sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
 const GB = 1e9;
 const GiB = 1073741824;
@@ -48,6 +48,7 @@ function mountAi(el: HTMLElement) {
             <option value="cpu" ${ms.gpu ? "" : "selected"}>Процессор</option>
             <option value="gpu" ${ms.gpu ? "selected" : ""}>Видеокарта (Vulkan)</option>
           </select></label>
+          ${ms.gpu && ms.gpu_failed ? `<p class="muted hint warn">Видеокарта не запустилась — модель работает на процессоре. Чтобы попробовать снова, переключите ускорение туда и обратно.</p>` : ""}
           ${ms.gpu && !ms.vulkan_found ? `<p class="muted hint warn">Драйвер Vulkan не найден — установите драйвер видеокарты (Linux: пакет libvulkan1 / vulkan-loader) или выберите «Процессор».</p>` : ""}` : ""}
       <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. ${ms.gpu || ms.metal ? "На видеокарте модель отвечает в разы быстрее; если видеопамяти мало, часть модели остаётся на процессоре." : "Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше) — включите ускорение на видеокарте, если она есть."}</p>
       <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
@@ -105,6 +106,10 @@ function mountAi(el: HTMLElement) {
     if (bar) { bar.hidden = false; (bar.firstElementChild as HTMLElement).style.width = p.total ? `${(100 * p.done) / p.total}%` : "5%"; }
     const s = el.querySelector(".ai-stage");
     if (s) s.textContent = `${p.stage === "engine" ? t("Движок llama.cpp") : `${t("Модель")}: ${t(title)}`} — ${(p.done / 1048576).toFixed(0)}${p.total ? ` / ${(p.total / 1048576).toFixed(0)}` : ""} ${t("МБ")}`;
+  });
+  listen("ai-fallback", () => {
+    toast("Видеокарта недоступна — локальный ИИ работает на процессоре");
+    draw();
   });
   listen<{ ok: boolean; error?: string }>("ai-installed", (e) => {
     if (e.payload.ok) toast("Локальный ИИ установлен — в терминале Ctrl+Shift+K или кнопка ✦ ИИ");
