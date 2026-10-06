@@ -1,5 +1,6 @@
 //! Network/DNS utilities. Runs the system binaries (no shell) and streams output line by line.
 
+use crate::process;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, process::Stdio, sync::Mutex};
 use tauri::{AppHandle, Emitter, State};
@@ -80,6 +81,52 @@ fn build(req: &ToolRequest) -> Result<(&'static str, Vec<String>), String> {
     })
 }
 
+#[cfg(windows)]
+fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) {
+    tauri::async_runtime::spawn(async move {
+        // ping/tracert/nslookup write OEM (e.g. CP866), not UTF-8 — lines() would error
+        // on the first byte and emit nothing; read raw and decode via CP_OEMCP.
+        let mut reader = BufReader::new(r);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    while buf.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+                        buf.pop();
+                    }
+                    let text = decode_oem(&buf);
+                    let _ = app.emit(&event, Line { stream, text });
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+#[cfg(windows)]
+fn decode_oem(bytes: &[u8]) -> String {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MultiByteToWideChar(cp: u32, flags: u32, s: *const u8, cb: i32, w: *mut u16, cw: i32) -> i32;
+    }
+    const CP_OEMCP: u32 = 1;
+    // SAFETY: MultiByteToWideChar with null/sized buffers per Win32 contract
+    unsafe {
+        let n = MultiByteToWideChar(CP_OEMCP, 0, bytes.as_ptr(), bytes.len() as i32, std::ptr::null_mut(), 0);
+        if n > 0 {
+            let mut wide = vec![0u16; n as usize];
+            let n2 = MultiByteToWideChar(CP_OEMCP, 0, bytes.as_ptr(), bytes.len() as i32, wide.as_mut_ptr(), n);
+            if n2 > 0 {
+                return String::from_utf16_lossy(&wide[..n2 as usize]);
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(not(windows))]
 fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) {
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(r).lines();
@@ -102,15 +149,17 @@ pub async fn tool_run(
     let (program, args) = build(&req)?;
     let cmdline = format!("{program} {}", args.join(" "));
 
-    let mut child = Command::new(program)
-        .args(&args)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("{program}: {e}"))?;
+    let mut child = {
+        let mut cmd = Command::new(program);
+        cmd.args(&args)
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        process::no_console_tokio(&mut cmd);
+        cmd.spawn().map_err(|e| format!("{program}: {e}"))?
+    };
 
     let line_event = format!("tool-line-{run_id}");
     pump(app.clone(), line_event.clone(), "out", child.stdout.take().unwrap());

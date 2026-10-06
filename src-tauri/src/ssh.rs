@@ -4,11 +4,16 @@
 
 use crate::{
     keepass::{self, KeepassState},
-    store,
+    process, store,
     tools::valid_host,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::Mutex,
+    time::SystemTime,
+};
 use tauri::{AppHandle, State};
 
 const FILE: &str = "ssh.json";
@@ -133,7 +138,7 @@ fn parse_config() -> Vec<ConfigHost> {
     out
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Clone, Default)]
 pub struct Effective {
     user: String,
     hostname: String,
@@ -142,9 +147,26 @@ pub struct Effective {
     proxy_jump: String,
 }
 
+/// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
+static EFFECTIVE_CACHE: Mutex<Option<(Option<SystemTime>, HashMap<String, Option<Effective>>)>> =
+    Mutex::new(None);
+
+fn config_mtime() -> Option<SystemTime> {
+    std::fs::metadata(ssh_dir().join("config"))
+        .and_then(|m| m.modified())
+        .ok()
+}
+
 /// What ssh will really use for an alias. No network access: `-G` only evaluates the config.
 fn effective(alias: &str) -> Option<Effective> {
-    let out = std::process::Command::new("ssh").args(["-G", alias]).output().ok()?;
+    let mut cmd = std::process::Command::new("ssh");
+    cmd.args(["-G", alias])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    // without this, Windows flashes an OpenSSH console for every alias
+    process::no_console(&mut cmd);
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -163,14 +185,35 @@ fn effective(alias: &str) -> Option<Effective> {
     Some(e)
 }
 
+fn effective_map(aliases: &[String]) -> HashMap<String, Option<Effective>> {
+    let mtime = config_mtime();
+    if let Ok(cache) = EFFECTIVE_CACHE.lock() {
+        if let Some((cached_mtime, map)) = cache.as_ref() {
+            if *cached_mtime == mtime && aliases.iter().all(|a| map.contains_key(a)) {
+                return map.clone();
+            }
+        }
+    }
+    let map: HashMap<String, Option<Effective>> = aliases
+        .iter()
+        .map(|a| (a.clone(), effective(a)))
+        .collect();
+    if let Ok(mut cache) = EFFECTIVE_CACHE.lock() {
+        *cache = Some((mtime, map.clone()));
+    }
+    map
+}
+
 #[tauri::command]
 pub async fn ssh_list() -> Result<SshList, String> {
     let hosts = load()?;
     let groups: HashMap<String, String> = store::load_json(GROUPS_FILE)?;
     let config = tauri::async_runtime::spawn_blocking(move || {
         let mut list = parse_config();
+        let aliases: Vec<String> = list.iter().map(|h| h.alias.clone()).collect();
+        let effectives = effective_map(&aliases);
         for h in &mut list {
-            h.effective = effective(&h.alias);
+            h.effective = effectives.get(&h.alias).cloned().flatten();
             if let Some(g) = groups.get(&h.alias) {
                 h.group = g.clone();
             }
