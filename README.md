@@ -6,7 +6,7 @@
 
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, Kubernetes, базы данных, встроенная IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass, SSH и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
 
-> *English:* runs on Linux (glibc 2.35+, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11 and macOS 10.13+ (Apple Silicon: 11+). OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
+> *English:* runs on Linux (glibc 2.35+, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11 and macOS 10.13+ (Apple Silicon: 11+). OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider, OpenCode), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
 
 Стек: **Rust + [Tauri 2](https://tauri.app)** (бэкенд), TypeScript + Vite (интерфейс), [xterm.js](https://xtermjs.org) (терминал), [kube-rs](https://kube.rs) (Kubernetes).
 
@@ -19,7 +19,7 @@
 - **Выбор шрифта**: ⚙ → Терминал → «Шрифт терминала». Выберите вариант или введите название установленного моноширинного шрифта; для иконок Powerlevel10k подходит MesloLGS NF или Nerd Font. Выбор сразу применяется к локальным, SSH- и AI-терминалам и сохраняется. Шрифты устанавливаются отдельно; если выбранный шрифт отсутствует, используется запасной. Пустое поле или «Шрифт по умолчанию» возвращает исходный набор JetBrains Mono / Fira Code / monospace.
 - Вкладки и сплиты, настоящий shell (bash/zsh/PowerShell).
 - **Блоки команд**: у каждой команды — код выхода и время, панель действий (скопировать команду/вывод, сохранить как сниппет, отправить в AI), плашка «спросить AI» при ошибке, навигация по командам.
-- **AI-панель** справа: Claude Code, Codex, Gemini или Aider в своём терминале; выделенный текст или вывод команды отправляется туда одной клавишей.
+- **AI-панель** справа: Claude Code, Codex, Gemini, Aider или OpenCode в своём терминале; выделенный текст или вывод команды отправляется туда одной клавишей.
 - **Интеграция с Claude Code как IDE**: `claude`, запущенный в OpsDeck, подключается к нему сам (MCP по WebSocket на 127.0.0.1) — видит выделение в заметках и получает ссылки на них.
 - **Строка ресурсов** внизу: CPU, load, RAM, диск — этой машины или удалённой в активной SSH-сессии.
 - **Запись сессии** в текстовый файл кнопкой ⏺.
