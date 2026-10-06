@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
@@ -52,33 +53,33 @@ export function mountTerminal(root: HTMLElement) {
     <aside class="files-panel" hidden></aside>
     <div class="term-main">
       <div class="tabbar">
-        <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">📁</button>
+        <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">${icon("folder", 16)}</button>
         <div class="tabs"></div>
-        <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">＋</button>
-        <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">◫</button>
-        <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">⊟</button>
-        <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">⏺</button>
-        <button class="icon" data-act="records" title="Открыть папку с записями сессий">📂</button>
+        <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">${icon("plus", 16)}</button>
+        <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">${icon("splitH", 16)}</button>
+        <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">${icon("splitV", 16)}</button>
+        <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
+        <button class="icon" data-act="records" title="Открыть папку с записями сессий">${icon("folderOpen", 16)}</button>
         <span class="font-ctl" title="Размер шрифта терминала: Ctrl+= / Ctrl+- / Ctrl+0, или Ctrl+колесо">
           <button class="icon" data-act="font-down">A−</button><span class="font-size"></span><button class="icon" data-act="font-up">A+</button>
         </span>
         <span class="spacer"></span>
         <span class="ide-status" title="Claude Code IDE-мост"></span>
         ${helpBtn("terminal")}
-        <button class="ghost" data-act="ask-ai" title="Локальный ИИ: опишите словами, что сделать, — получите команду (Ctrl+Shift+K)">✦<span class="lbl"> ИИ</span></button>
-        <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">⌘<span class="lbl"> Команды</span></button>
+        <button class="ghost" data-act="ask-ai" title="Локальный ИИ: опишите словами, что сделать, — получите команду (Ctrl+Shift+K)">${icon("sparkles", 16)}<span class="lbl"> ИИ</span></button>
+        <button class="ghost" data-act="palette" title="Палитра команд (Ctrl+Shift+P)">${icon("command", 16)}<span class="lbl"> Команды</span></button>
         <button class="ghost" data-act="send" title="Отправить выделение в AI (Ctrl+Shift+A)">⇢<span class="lbl"> в AI</span></button>
         <button class="ghost" data-act="ai" title="Показать/скрыть AI-панель (Ctrl+Shift+I)">AI ▸</button>
       </div>
       <div class="term-hosts"></div>
       <div class="ai-ask" hidden>
-        <div class="aa-row"><span class="aa-icon">✦</span><input class="aa-in" placeholder="Что сделать? Например: перезапусти деплоймент api в stage — Enter" spellcheck="false" autocomplete="off" />
-          <button class="icon" data-aa="close" title="Закрыть (Esc)">×</button></div>
+        <div class="aa-row"><span class="aa-icon">${icon("sparkles", 16)}</span><input class="aa-in" placeholder="Что сделать? Например: перезапусти деплоймент api в stage — Enter" spellcheck="false" autocomplete="off" />
+          <button class="icon" data-aa="close" title="Закрыть (Esc)">${icon("close", 16)}</button></div>
         <div class="aa-out" hidden>
           <pre class="aa-cmd"></pre>
           <div class="aa-acts"><button class="primary" data-aa="paste" title="Вставить в терминал, не выполняя (Enter)">Вставить</button>
             <button data-aa="run" title="Вставить и выполнить (Ctrl+Enter)">Выполнить</button>
-            <button class="ghost" data-aa="again" title="Спросить ещё раз">↻</button>
+            <button class="ghost" data-aa="again" title="Спросить ещё раз">${icon("refresh", 16)}</button>
             <span class="aa-meta muted"></span></div>
         </div>
       </div>
@@ -89,7 +90,7 @@ export function mountTerminal(root: HTMLElement) {
       <div class="tabbar">
         <select class="ai-provider"></select>
         <span class="spacer"></span>
-        <button class="icon" data-act="ai-restart" title="Перезапустить">↻</button>
+        <button class="icon" data-act="ai-restart" title="Перезапустить">${icon("refresh", 16)}</button>
       </div>
       <div class="ai-host"></div>
     </aside>`;
@@ -185,7 +186,7 @@ export function mountTerminal(root: HTMLElement) {
         <button data-b="ai" title="Отправить команду и вывод в AI">⇢ AI</button>
       </div>
       <div class="fail-chip" hidden><span class="fail-text"></span>
-        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">×</button></div>`;
+        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">${icon("close", 14)}</button></div>`;
     tab.host.appendChild(el);
 
     const pty = new PtyTerminal(el.querySelector<HTMLElement>(".pane-term")!, spawn);

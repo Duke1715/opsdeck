@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
@@ -24,7 +25,7 @@ const ENGINES: Record<string, { label: string; short: string; port: number; tlsP
 const AUTH: Record<string, string> = { password: "пароль (keyring)", keepass: "из KeePass", none: "без пароля" };
 const TLS: Record<string, string> = { off: "без TLS", require: "TLS, сертификат не проверять", verify: "TLS с проверкой сертификата" };
 const KIND_ICON: Record<string, string> = {
-  database: "🗄", schema: "▤", table: "▦", view: "◫", column: "·", index: "⚡", key: "🔑", collection: "▦", field: "·", info: "ℹ",
+  database: icon("db", 14), schema: "▤", table: "▦", view: "◫", column: "·", index: icon("zap", 14), key: icon("key", 14), collection: "▦", field: "·", info: "ℹ",
 };
 
 const ls = {
@@ -37,7 +38,7 @@ export function mountDb(root: HTMLElement) {
   root.innerHTML = `
     <aside class="db-side">
       <div class="side-head"><span>Базы данных</span>
-        <span class="row"><button class="icon" data-a="add" title="Новое подключение">＋</button>${helpBtn("db")}</span></div>
+        <span class="row"><button class="icon" data-a="add" title="Новое подключение">${icon("plus", 16)}</button>${helpBtn("db")}</span></div>
       <input class="db-filter" placeholder="фильтр…" spellcheck="false" />
       <div class="db-tree"></div>
     </aside>
@@ -49,7 +50,7 @@ export function mountDb(root: HTMLElement) {
         <datalist id="db-ctx-list"></datalist>
         <span class="spacer"></span>
         <select class="db-hist" title="История запросов этого подключения"><option value="">История…</option></select>
-        <button class="primary" data-a="run" disabled title="Выполнить (Ctrl+Enter). Если есть выделение — только его">▶ Выполнить</button>
+        <button class="primary" data-a="run" disabled title="Выполнить (Ctrl+Enter). Если есть выделение — только его">${icon("play", 16)} Выполнить</button>
       </div>
       <textarea class="db-editor" spellcheck="false" placeholder="Запрос… Ctrl+Enter — выполнить (выделенное или всё)" disabled></textarea>
       <div class="db-hsplit" title="Потяните, чтобы изменить высоту"></div>
@@ -281,8 +282,8 @@ export function mountDb(root: HTMLElement) {
         return `<div class="tree-dir db-conn ${open ? "open" : ""} ${active?.id === p.id ? "active" : ""}" data-id="${esc(p.id)}" data-path="[]">
           <button class="tree-row" style="--depth:0" title="${esc(`${ENGINES[p.engine]?.label} ${p.host}:${p.port}`)}">
             <span class="tree-caret">▸</span><span class="db-eng db-eng-${esc(p.engine)}">${ENGINES[p.engine]?.short ?? "?"}</span>
-            <span class="tree-label">${esc(p.name)}</span>${p.readonly ? `<span class="db-lock" title="только чтение">🔒</span>` : ""}
-            <span class="db-acts"><span data-c="refresh" title="Обновить структуру">↻</span><span data-c="edit" title="Изменить">✎</span><span data-c="del" title="Удалить">×</span></span>
+            <span class="tree-label">${esc(p.name)}</span>${p.readonly ? `<span class="db-lock" title="только чтение">${icon("lock", 14)}</span>` : ""}
+            <span class="db-acts"><span data-c="refresh" title="Обновить структуру">${icon("refresh", 14)}</span><span data-c="edit" title="Изменить">${icon("edit", 14)}</span><span data-c="del" title="Удалить">${icon("trash", 14)}</span></span>
           </button>
           <div class="tree-children">${open ? childrenHtml(p, [], 1) : ""}</div></div>`;
       }).join("")}`).join("");
@@ -401,7 +402,7 @@ export function mountDb(root: HTMLElement) {
     } finally {
       running = false;
       runBtn.disabled = !active;
-      runBtn.textContent = "▶ Выполнить";
+      runBtn.innerHTML = `${icon("play", 16)} Выполнить`;
     }
   }
   runBtn.onclick = run;

@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
@@ -123,10 +124,10 @@ export function mountCode(root: HTMLElement) {
     <aside class="code-side">
       <div class="side-head"><span class="code-proj" title="">Проект не открыт</span>
         <span class="row">
-          <button class="icon" data-a="open" title="Выбрать папку проекта (весь проект откроется деревом слева)">📂</button>
+          <button class="icon" data-a="open" title="Выбрать папку проекта (весь проект откроется деревом слева)">${icon("folderOpen", 16)}</button>
           <button class="icon" data-a="from-term" title="Открыть папку, в которой сейчас терминал">⌁</button>
-          <button class="icon" data-a="new-file" title="Новый файл в проекте">＋</button>
-          <button class="icon" data-a="refresh" title="Обновить">↻</button>
+          <button class="icon" data-a="new-file" title="Новый файл в проекте">${icon("plus", 16)}</button>
+          <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
           ${helpBtn("code")}
         </span></div>
       <select class="code-recent" title="Недавние проекты"><option value="">Недавние проекты…</option></select>
@@ -136,13 +137,13 @@ export function mountCode(root: HTMLElement) {
     <div class="code-main">
       <div class="code-tabs"></div>
       <div class="code-editor"></div>
-      <div class="code-empty muted">Откройте папку проекта (📂) и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
+      <div class="code-empty muted">Откройте папку проекта и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
       <div class="code-hsplit" hidden title="Потяните, чтобы изменить высоту консоли"></div>
       <div class="code-console" hidden>
         <div class="cc-head"><span class="cc-cwd muted"></span><span class="spacer"></span>
-          <button class="icon" data-a="cc-restart" title="Перезапустить shell">↻</button>
+          <button class="icon" data-a="cc-restart" title="Перезапустить shell">${icon("refresh", 16)}</button>
           <button class="icon" data-a="cc-tab" title="Открыть эту папку во вкладке терминала">⧉</button>
-          <button class="icon" data-a="console" title="Скрыть (Ctrl+\`)">×</button></div>
+          <button class="icon" data-a="console" title="Скрыть (Ctrl+\`)">${icon("close", 16)}</button></div>
         <div class="cc-host"></div>
       </div>
       <div class="code-status">
@@ -162,7 +163,7 @@ export function mountCode(root: HTMLElement) {
           <button class="icon" data-a="git-fetch" title="Получить изменения со всех remote (fetch --all --prune)">⟳</button>
           <button class="icon" data-a="git-pull" title="Подтянуть текущую ветку (pull --ff-only)">↓</button>
           <button class="icon" data-a="git-push" title="Отправить текущую ветку (push; новая ветка — с -u origin)">↑</button>
-          <button class="icon" data-a="git-refresh" title="Обновить">↻</button>
+          <button class="icon" data-a="git-refresh" title="Обновить">${icon("refresh", 16)}</button>
         </span></div>
       <div class="cg-branches" hidden></div>
       <div class="side-head small">Изменения</div>
@@ -630,7 +631,7 @@ export function mountCode(root: HTMLElement) {
       </div>`;
     };
     box.innerHTML = `
-      <div class="cg-br-new" data-bo="create">＋ Новая ветка от «${esc(b.current || "HEAD")}»</div>
+      <div class="cg-br-new" data-bo="create">${icon("plus", 14)} Новая ветка от «${esc(b.current || "HEAD")}»</div>
       ${b.local.map((x) => row(x, false)).join("")}
       ${b.remote.length ? `<details class="cg-remotes"><summary>Удалённые (${b.remote.length})</summary>${b.remote.map((x) => row(x, true)).join("")}</details>` : ""}`;
   }

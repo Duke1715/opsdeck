@@ -1,4 +1,5 @@
 import { fileIcon, folderIcon } from "./fileicons";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import type { PtyTerminal } from "./pty";
 import { ask, esc, toast } from "./ui";
@@ -109,7 +110,7 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
       <span class="spacer"></span>
       <button class="icon" data-f="follow" title="Следовать за cd в терминале">⌖</button>
       <button class="icon" data-f="hidden" title="Показывать скрытые файлы">.*</button>
-      <button class="icon" data-f="refresh" title="Обновить">↻</button>
+      <button class="icon" data-f="refresh" title="Обновить">${icon("refresh", 16)}</button>
     </div>
     <div class="fx-bar">
       <select class="fx-editor" title="Чем открывать"></select>

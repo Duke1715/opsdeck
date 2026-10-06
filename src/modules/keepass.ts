@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { esc, overlay, toast } from "./ui";
@@ -17,7 +18,7 @@ export const kpEntries = (query = "") => invoke<KpEntry[]>("kp_entries", { query
 function unlockForm(el: HTMLElement, st: KpStatus, onUnlocked: () => void) {
   el.innerHTML = `
     <form class="kp-unlock">
-      <div class="kp-lock-icon">🔒</div>
+      <div class="kp-lock-icon">${icon("lock", 48)}</div>
       <div class="muted kp-path"></div>
       <input type="password" name="pw" placeholder="Мастер-пароль" autocomplete="off" />
       <p class="err kp-err"></p>
@@ -118,7 +119,7 @@ export function mountKeepass(root: HTMLElement) {
         <h2>KeePass <span class="muted small-note"></span></h2>
         <div class="row">
           <button class="ghost" data-a="xc">KeePassXC</button>
-          <button data-a="lock">🔒 Заблокировать</button>
+          <button data-a="lock">${icon("lock", 16)} Заблокировать</button>
           ${helpBtn("vault")}
         </div>
       </div>
@@ -142,8 +143,8 @@ export function mountKeepass(root: HTMLElement) {
         <tr data-i="${i}" class="${selected?.id === e.id ? "sel" : ""}">
           <td>${esc(e.title)}</td><td>${esc(e.username)}</td><td class="muted">${esc(e.url)}</td><td class="muted">${esc(e.group)}</td>
           <td class="kp-acts">
-            ${e.username ? `<button class="icon" data-c="username" title="Скопировать логин">👤</button>` : ""}
-            ${e.has_password ? `<button class="icon" data-c="password" title="Скопировать пароль (очистится через 30 с)">🔑</button>` : ""}
+            ${e.username ? `<button class="icon" data-c="username" title="Скопировать логин">${icon("user", 14)}</button>` : ""}
+            ${e.has_password ? `<button class="icon" data-c="password" title="Скопировать пароль (очистится через 30 с)">${icon("key", 14)}</button>` : ""}
           </td></tr>`).join("");
     };
     tbody.onclick = async (ev) => {

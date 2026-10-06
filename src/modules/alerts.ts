@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { age } from "./k8s-details";
@@ -46,8 +47,8 @@ export function mountAlerts(root: HTMLElement) {
         <h2>Алерты <span class="muted small-note al-summary"></span></h2>
         <div class="row">
           <input class="al-filter" placeholder="поиск: имя, метка, текст…" spellcheck="false" />
-          <button class="ghost" data-a="poll" title="Опросить источники сейчас">↻ Опросить</button>
-          <button class="ghost" data-a="settings" title="Настройки опроса, уведомлений и скрытые алерты">⚙</button>
+          <button class="ghost" data-a="poll" title="Опросить источники сейчас">${icon("refresh", 16)} Опросить</button>
+          <button class="ghost" data-a="settings" title="Настройки опроса, уведомлений и скрытые алерты">${icon("settings", 16)}</button>
           ${helpBtn("alerts")}
         </div>
       </div>
@@ -180,7 +181,7 @@ export function mountAlerts(root: HTMLElement) {
         <button class="ghost" data-a="ai">⇢ AI</button>
         <button class="ghost" data-a="ack">${acked ? "Вернуть" : "✓ Просмотрен"}</button>
         ${ai ? `<button class="ghost" data-a="resolve" title="Убрать в историю">Закрыть</button>` : ""}
-        <button class="ghost" data-a="mute" title="Больше не показывать алерты «${esc(a.name)}» из ${esc(a.source)} (вернуть — в ⚙)">🔕 Скрыть такие</button>
+        <button class="ghost" data-a="mute" title="Больше не показывать алерты «${esc(a.name)}» из ${esc(a.source)} (вернуть — в ⚙)">${icon("bellOff", 16)} Скрыть такие</button>
       </div>
     </div>`;
   }
@@ -241,9 +242,9 @@ export function mountAlerts(root: HTMLElement) {
         <li><b>Свой AI-анализатор</b>: «＋ AI-анализатор» — в карточке будет адрес, токен и пример curl.</li>
       </ol>
       <div class="row">
-        <button class="primary" data-add="grafana">＋ Grafana</button>
-        <button data-add="alertmanager">＋ Alertmanager</button>
-        <button data-add="ai">＋ AI-анализатор</button>
+        <button class="primary" data-add="grafana">${icon("plus", 16)} Grafana</button>
+        <button data-add="alertmanager">${icon("plus", 16)} Alertmanager</button>
+        <button data-add="ai">${icon("plus", 16)} AI-анализатор</button>
       </div>
     </div>`;
   }

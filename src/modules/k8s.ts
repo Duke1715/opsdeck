@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -252,21 +253,21 @@ export function mountK8s(root: HTMLElement) {
   root.classList.add("k8s");
   root.innerHTML = `
     <aside class="k8s-side">
-      <div class="side-head"><span>Кластеры</span><button class="icon" data-act="import" title="Импорт kubeconfig">＋</button></div>
+      <div class="side-head"><span>Кластеры</span><button class="icon" data-act="import" title="Импорт kubeconfig">${icon("plus", 16)}</button></div>
       <div class="ctx-list"></div>
       <div class="kind-list"></div>
     </aside>
     <div class="k8s-main">
       <div class="k8s-bar">
         <span class="ctx-title muted">выберите контекст</span>
-        <span class="ro-badge" title="Изменения в этом контексте запрещены">🔒 только чтение</span>
+        <span class="ro-badge" title="Изменения в этом контексте запрещены">${icon("lock", 14)} только чтение</span>
         <select class="ns-select" title="Namespace"></select>
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="count muted"></span>
         <label class="muted auto" title="Живое обновление (watch): изменения в кластере появляются сразу"><input type="checkbox" class="auto-cb" checked /> live</label>
-        <button class="icon" data-act="refresh" title="Обновить">↻</button>
-        <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">⎈ Терминал</button>
+        <button class="icon" data-act="refresh" title="Обновить">${icon("refresh", 16)}</button>
+        <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">${icon("k8s", 16)} Терминал</button>
         ${helpBtn("k8s")}
       </div>
       <div class="k8s-err err" hidden></div>
@@ -277,7 +278,7 @@ export function mountK8s(root: HTMLElement) {
           <div class="drawer-tabs"></div>
           <span class="spacer"></span>
           <div class="drawer-actions"></div>
-          <button class="icon" data-act="close-drawer" title="Закрыть">×</button>
+          <button class="icon" data-act="close-drawer" title="Закрыть">${icon("close", 16)}</button>
         </div>
         <div class="drawer-body"></div>
       </div>
@@ -335,7 +336,7 @@ export function mountK8s(root: HTMLElement) {
     prefs[list] = prefs[list].filter((x) => x !== k);
     if (on) prefs[list].push(k);
     await invoke("k8s_prefs_set", { prefs }).catch((e) => toast(String(e), "err"));
-    if (list === "readonly") toast(on ? `🔒 ${c.context}: только чтение` : `${c.context}: изменения разрешены`);
+    if (list === "readonly") toast(on ? `${c.context}: только чтение` : `${c.context}: изменения разрешены`);
     if (list === "hidden" && on) toast(`${c.context} скрыт — вернуть можно внизу списка`);
     loadContexts();
   }
@@ -348,12 +349,12 @@ export function mountK8s(root: HTMLElement) {
     b.classList.toggle("active", !!ctx && ctxKey(ctx) === ctxKey(c));
     b.classList.toggle("ro", ro);
     b.title = `${c.server}\ncluster: ${c.cluster}\nuser: ${c.user}`;
-    b.innerHTML = `<span class="ctx-name">${c.current ? "● " : ""}${esc(c.context)}${ro ? " 🔒" : ""}</span>
+    b.innerHTML = `<span class="ctx-name">${c.current ? "● " : ""}${esc(c.context)}${ro ? ` ${icon("lock", 14)}` : ""}</span>
       <span class="ctx-server muted">${esc(c.server.replace(/^https?:\/\//, ""))}</span>
       <span class="ctx-acts">
-        <button class="icon" data-p="ro" title="${ro ? "Разрешить изменения" : "Только чтение: запретить apply/delete/scale/restart/exec"}">${ro ? "🔓" : "🔒"}</button>
-        <button class="icon" data-p="hide" title="Скрыть контекст из списка">🙈</button>
-        <button class="icon" data-p="del" title="Удалить контекст из kubeconfig (с резервной копией)">🗑</button>
+        <button class="icon" data-p="ro" title="${ro ? "Разрешить изменения" : "Только чтение: запретить apply/delete/scale/restart/exec"}">${ro ? icon("lockOpen", 14) : icon("lock", 14)}</button>
+        <button class="icon" data-p="hide" title="Скрыть контекст из списка">${icon("eyeOff", 14)}</button>
+        <button class="icon" data-p="del" title="Удалить контекст из kubeconfig (с резервной копией)">${icon("trash", 14)}</button>
       </span>`;
     b.onclick = (e) => {
       const p = (e.target as HTMLElement).closest<HTMLElement>("[data-p]")?.dataset.p;
@@ -1188,7 +1189,7 @@ export function mountK8s(root: HTMLElement) {
     if (!cmds.length) return;
     ask("Kubeconfig запускает команды",
       `При подключении к этому кластеру будет выполнено: ${cmds.join(" ; ")}. Так работают aws/gcloud/kubelogin и т.п. ` +
-      `Если файл получен не из доверенного источника — удалите контекст (🗑) и не подключайтесь.`, { ok: "Понятно" });
+      `Если файл получен не из доверенного источника — удалите контекст и не подключайтесь.`, { ok: "Понятно" });
   }
 
   const dialog = $<HTMLDialogElement>(".import-dialog");

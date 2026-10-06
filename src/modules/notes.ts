@@ -1,4 +1,5 @@
 import { helpBtn } from "./help";
+import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -27,10 +28,10 @@ export function mountNotes(root: HTMLElement) {
     <aside class="notes-side">
       <div class="side-head"><button class="ghost vault-btn" data-a="vaults" title="Хранилища: переключить, создать новое, открыть папку"><span class="vault-name">Заметки</span> ▾</button>
         <span class="row">
-          <button class="icon" data-a="daily" title="Заметка на сегодня">📅</button>
-          <button class="icon" data-a="new" title="Новая заметка">＋</button>
-          <button class="icon" data-a="collapse" title="Свернуть все папки">⊟</button>
-          <button class="icon" data-a="reload" title="Обновить">↻</button>
+          <button class="icon" data-a="daily" title="Заметка на сегодня">${icon("calendar", 16)}</button>
+          <button class="icon" data-a="new" title="Новая заметка">${icon("plus", 16)}</button>
+          <button class="icon" data-a="collapse" title="Свернуть все папки">${icon("splitV", 16)}</button>
+          <button class="icon" data-a="reload" title="Обновить">${icon("refresh", 16)}</button>
         </span></div>
       <div class="vault-menu" hidden></div>
       <input class="notes-q" placeholder="поиск по заметкам…" spellcheck="false" />
@@ -40,7 +41,7 @@ export function mountNotes(root: HTMLElement) {
       <div class="notes-bar">
         <strong class="note-path muted">выберите заметку</strong><span class="dirty" hidden>●</span>
         <span class="spacer"></span>
-        <button class="ghost" data-a="task" disabled title="Вставить задачу: срок, напоминание, приоритет, теги">＋ Задача</button>
+        <button class="ghost" data-a="task" disabled title="Вставить задачу: срок, напоминание, приоритет, теги">${icon("plus", 16)} Задача</button>
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
         <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос Claude Code">@ Claude</button>
         <button data-a="save" title="Ctrl+S" disabled>Сохранить</button>
@@ -120,7 +121,7 @@ export function mountNotes(root: HTMLElement) {
       <div class="tree-dir ${openDirs.has(d.path) ? "open" : ""}" data-dir="${esc(d.path)}">
         <button class="tree-row" style="--depth:${depth}"><span class="tree-caret">▸</span><span class="tree-icon">${folderIcon(d.name, openDirs.has(d.path))}</span>
           <span class="tree-label">${esc(d.name)}</span><span class="tree-count">${d.count}</span>
-          <span class="tree-add" data-add="${esc(d.path)}" title="Новая заметка в этой папке">＋</span><span class="tree-more" data-more="dir" title="Действия">⋯</span></button>
+          <span class="tree-add" data-add="${esc(d.path)}" title="Новая заметка в этой папке">${icon("plus", 14)}</span><span class="tree-more" data-more="dir" title="Действия">⋯</span></button>
         <div class="tree-children" style="--guide:${depth}">${openDirs.has(d.path) ? renderFolder(d, depth + 1) : ""}</div>
       </div>`).join("") + notes.map((n) => noteBtn(n, depth)).join("");
   }
@@ -150,7 +151,7 @@ export function mountNotes(root: HTMLElement) {
   /** Notes with the chosen tag. */
   function drawTagged() {
     const notes = allTags.find((t) => t.tag === tagFilter)?.notes ?? [];
-    listEl.innerHTML = `<div class="tag-filter"><span class="tag-chip on">#${esc(tagFilter)}</span><span class="muted">${notes.length} заметок</span><span class="spacer"></span><button class="icon" data-untag title="Сбросить фильтр">×</button></div>
+    listEl.innerHTML = `<div class="tag-filter"><span class="tag-chip on">#${esc(tagFilter)}</span><span class="muted">${notes.length} заметок</span><span class="spacer"></span><button class="icon" data-untag title="Сбросить фильтр">${icon("close", 14)}</button></div>
       ${notes.map((p) => noteBtn({ path: p, mtime: 0 }, 0, p.replace(/\.md$/, ""))).join("")}`;
   }
 
@@ -251,7 +252,7 @@ export function mountNotes(root: HTMLElement) {
     if (!current) { bar.hidden = true; return; }
     const { all, front } = tagsOf(editor.value);
     bar.hidden = false;
-    bar.innerHTML = all.map((t) => `<span class="tag-chip ${front.includes(t) ? "" : "inline"}" title="${front.includes(t) ? "Тег заметки" : "Тег в тексте заметки"}">#${esc(t)}${front.includes(t) ? `<span class="tag-x" data-rm="${esc(t)}" title="Убрать тег">×</span>` : ""}</span>`).join("")
+    bar.innerHTML = all.map((t) => `<span class="tag-chip ${front.includes(t) ? "" : "inline"}" title="${front.includes(t) ? "Тег заметки" : "Тег в тексте заметки"}">#${esc(t)}${front.includes(t) ? `<span class="tag-x" data-rm="${esc(t)}" title="Убрать тег">${icon("close", 14)}</span>` : ""}</span>`).join("")
       + `<span class="tag-add"><input class="tag-in" list="note-tag-list" placeholder="＋ тег" spellcheck="false" autocomplete="off" />
          <datalist id="note-tag-list">${allTags.map((t) => `<option value="${esc(t.tag)}">`).join("")}</datalist></span>`;
   }
@@ -608,10 +609,10 @@ export function mountNotes(root: HTMLElement) {
       <div class="vault-item ${x.path === v.active ? "active" : ""} ${x.exists ? "" : "missing"}" data-v="${esc(x.path)}" title="${esc(x.path)}">
         <span class="vault-mark">${x.path === v.active ? "●" : ""}</span><span class="tree-label">${esc(x.name)}</span>
         ${x.obsidian ? `<span class="vault-badge">Obsidian</span>` : ""}${x.found ? `<span class="vault-badge found">найдено</span>` : ""}${x.exists ? "" : `<span class="vault-badge">нет папки</span>`}
-        ${x.path !== v.active && !x.found ? `<span class="vault-x" data-forget="${esc(x.path)}" title="Убрать из списка (папка останется)">×</span>` : ""}
+        ${x.path !== v.active && !x.found ? `<span class="vault-x" data-forget="${esc(x.path)}" title="Убрать из списка (папка останется)">${icon("close", 14)}</span>` : ""}
       </div>`).join("")}
-      <div class="vault-act" data-va="create">＋ Создать хранилище…</div>
-      <div class="vault-act" data-va="open">📂 Открыть папку как хранилище…</div>`;
+      <div class="vault-act" data-va="create">${icon("plus", 14)} Создать хранилище…</div>
+      <div class="vault-act" data-va="open">${icon("folderOpen", 14)} Открыть папку как хранилище…</div>`;
   }
   $("[data-a=vaults]").onclick = vaultMenu;
   const switched = async () => {
