@@ -1,5 +1,7 @@
 # Сборка OpsDeck на нативных раннерах (своя ОС и архитектура, без кросс-компиляции).
-# Пуш в main/master и PR в master — быстрая проверка: только linux-x64 (+ артефакт в Actions).
+# Пуш в main/master — все 5 платформ без публикации: в master пушим только при релизе, и эта сборка
+# заполняет кэш Rust для всех платформ (тег может брать кэш только из master, поэтому следующий релиз
+# пересобирает лишь сам OpsDeck). PR в master — быстрая проверка: только linux-x64 (+ артефакт в Actions).
 # Ветка dev (внешние PR) сама не собирается — экономим минуты; проверка — вручную:
 # Actions → build → Run workflow → ветка dev.
 # Тег v* (удобнее через `npm run release -- 0.2.0 "что нового"`) и ручной запуск с галкой — все 5 платформ
@@ -29,7 +31,7 @@ permissions:
   contents: read
 
 jobs:
-  # какие платформы собирать: полный набор на тегах и по ручному запуску, иначе только linux-x64
+  # какие платформы собирать: полный набор на тегах, пушах в master и по ручному запуску, иначе только linux-x64
   plan:
     runs-on: ubuntu-24.04
     outputs:
@@ -38,14 +40,14 @@ jobs:
       - id: m
         shell: bash
         env:
-          FULL: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.all_platforms) }}
+          FULL: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch' && inputs.all_platforms) }}
         run: |
           all='[
             {"name":"linux-x64","os":"ubuntu-22.04"},
             {"name":"linux-arm64","os":"ubuntu-22.04-arm"},
             {"name":"windows-x64","os":"windows-latest"},
             {"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},
-            {"name":"macos-x64","os":"macos-15-intel","target":"x86_64-apple-darwin"}
+            {"name":"macos-x64","os":"macos-latest","target":"x86_64-apple-darwin"}
           ]'
           if [ "$FULL" = "true" ]; then m="$all"; else m=$(echo "$all" | jq -c '[.[] | select(.name == "linux-x64")]'); fi
           echo "matrix=$(echo "$m" | jq -c '{include: .}')" >> "$GITHUB_OUTPUT"
@@ -136,8 +138,9 @@ jobs:
           workspaces: src-tauri -> target
           key: ${{ matrix.name }}
           cache-on-failure: true
-          # кэш пишут только master и теги, чтобы ветки и PR не вытесняли его своими копиями
-          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          # кэш пишет только master (там собираются все платформы); теги, ветки и PR его только читают —
+          # их копии всё равно никто не смог бы взять, а лимит кэша на репозиторий 10 ГБ
+          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
 
       - run: npm ci
 
