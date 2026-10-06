@@ -979,3 +979,9 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .modules-pop label.check:hover { background: var(--panel-2); }
 .modules-pop label.check svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .modules-pop .hint { margin: 8px 6px 2px; font-size: 12px; }
+
+/* local AI model picker */
+.ai-custom input { flex: 1; min-width: 0; }
+.ai-others { font-size: 12px; }
+.ai-others button.link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
+.ai-others button.link:hover { text-decoration: underline; }

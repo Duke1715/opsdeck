@@ -13,32 +13,76 @@ const AUTHOR_TG = "https://t.me/sys_admin_expert";
 const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
 const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
-type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean };
-const gb = (b: number) => `${(b / 1073741824).toFixed(2)} ГБ`;
+type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number };
+// sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
+const GB = 1e9;
+const GiB = 1073741824;
+const gb = (b: number) => `${(b / GB).toFixed(1)} ГБ`;
 
-/** Install / remove the local model, with download progress. */
+/** Choose / install / remove the local model, with download progress. */
 function mountAi(el: HTMLElement) {
+  let title = "";
   const draw = async () => {
-    const st = await invoke<AiStatus>("ai_status").catch(() => null);
-    if (!st) { el.textContent = "статус недоступен"; return; }
+    const [st, ms] = await Promise.all([invoke<AiStatus>("ai_status").catch(() => null), invoke<AiModels>("ai_models").catch(() => null)]);
+    if (!st || !ms) { el.textContent = "статус недоступен"; return; }
+    title = st.model_title;
+    if (!st.supported) { el.innerHTML = `<p class="muted">Для этой платформы встроенной модели пока нет.</p>`; return; }
     const ready = st.engine && st.model;
-    el.innerHTML = !st.supported ? `<p class="muted">Для этой платформы встроенной модели пока нет.</p>` : `
-      <div class="row"><span>${ready ? `✓ Установлен${st.running ? " · модель загружена в память" : ""} · ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
+    // the biggest model that fits this machine's RAM (a little slack: the OS reports a bit less)
+    const best = [...ms.models].reverse().find((m) => ms.ram_total >= m.ram_gb * GiB * 0.9)?.id ?? ms.models[0].id;
+    const custom = ms.selected === "custom";
+    const others = ms.models.filter((m) => m.installed && m.id !== ms.selected);
+    el.innerHTML = `
+      <label>Модель <select class="ai-model" data-no-i18n ${st.installing ? "disabled" : ""}>
+        ${ms.models.map((m) => `<option value="${m.id}" ${m.id === ms.selected ? "selected" : ""}>${esc(t(m.title))} · ${(m.size / GB).toFixed(1)} ${t("ГБ")} · ${t("ОЗУ от")} ${m.ram_gb} ${t("ГБ")}${m.installed ? ` · ${t("скачана")}` : ""}${m.id === best ? ` · ${t("★ для вашего ПК")}` : ""}</option>`).join("")}
+        <option value="custom" ${custom ? "selected" : ""}>${t("Свой файл .gguf…")}</option>
+      </select></label>
+      <div class="row ai-custom" ${custom ? "" : "hidden"}>
+        <input class="ai-custom-path" placeholder="/путь/к/модели.gguf" spellcheck="false" value="${esc(ms.custom_path)}" />
+        <button type="button" class="ghost" data-ai="pick">Выбрать…</button>
+        <button type="button" class="primary" data-ai="use-custom">Использовать</button>
+      </div>
+      <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше).</p>
+      <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
         <span class="spacer"></span>
         ${st.installing ? `<button type="button" class="ghost" data-ai="cancel">Отменить</button>`
-          : ready ? `<button type="button" class="ghost" data-ai="remove">Удалить</button>`
-          : `<button type="button" class="primary" data-ai="install">${st.size > 0 ? "Докачать" : "Установить"}</button>`}</div>
+          : ready ? `${custom ? "" : `<button type="button" class="ghost" data-ai="remove-model" data-id="${ms.selected}">Удалить модель</button>`}<button type="button" class="ghost" data-ai="remove">Удалить всё</button>`
+          : custom ? "" : `<button type="button" class="primary" data-ai="install">${st.size > 0 ? "Скачать" : "Установить"}</button>`}</div>
+      ${others.length ? `<div class="muted ai-others">Ещё скачаны: ${others.map((m) => `${esc(t(m.title))} (${(m.size / GB).toFixed(1)} ГБ) <button type="button" class="link" data-ai="remove-model" data-id="${m.id}">удалить</button>`).join(", ")}</div>` : ""}
       <div class="upd-progress ai-prog" ${st.installing ? "" : "hidden"}><div class="upd-bar"></div></div>
-      <div class="ai-stage muted"></div>
-      <div class="muted small-path" title="Папка с движком и моделью">${esc(st.dir)}</div>`;
+      <div class="ai-stage muted" data-no-i18n></div>
+      <div class="muted small-path" title="Папка с движком и моделями">${esc(st.dir)}</div>`;
   };
+  el.addEventListener("change", async (e) => {
+    const sel = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-model");
+    if (!sel) return;
+    if (sel.value === "custom") { el.querySelector<HTMLElement>(".ai-custom")!.hidden = false; return; }
+    try { await invoke("ai_select", { model: sel.value }); } catch (err) { toast(String(err), "err"); }
+    await draw();
+  });
   el.addEventListener("click", async (e) => {
-    const a = (e.target as HTMLElement).closest<HTMLElement>("[data-ai]")?.dataset.ai;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-ai]");
+    const a = btn?.dataset.ai;
     try {
       if (a === "install") { await invoke("ai_install"); await draw(); }
       if (a === "cancel") await invoke("ai_cancel");
+      if (a === "pick") {
+        const p = await invoke<string | null>("ai_pick_model");
+        if (p) el.querySelector<HTMLInputElement>(".ai-custom-path")!.value = p;
+      }
+      if (a === "use-custom") {
+        await invoke("ai_select", { model: "custom", customPath: el.querySelector<HTMLInputElement>(".ai-custom-path")!.value });
+        toast("Своя модель выбрана — загрузится при следующем запросе");
+        await draw();
+      }
+      if (a === "remove-model") {
+        if ((await ask("Удалить модель", "Удалить файл этой модели? Движок и другие модели останутся.", { ok: "Удалить", danger: true })) === null) return;
+        await invoke("ai_remove_model", { id: btn!.dataset.id });
+        await draw();
+      }
       if (a === "remove") {
-        if ((await ask("Удалить локальный ИИ", "Удалить движок и модель (≈1,1 ГБ)? Потом их можно скачать снова.", { ok: "Удалить", danger: true })) === null) return;
+        if ((await ask("Удалить локальный ИИ", "Удалить движок и все скачанные модели? Потом их можно скачать снова.", { ok: "Удалить", danger: true })) === null) return;
         await invoke("ai_remove");
         await draw();
       }
@@ -49,7 +93,7 @@ function mountAi(el: HTMLElement) {
     const bar = el.querySelector<HTMLElement>(".ai-prog");
     if (bar) { bar.hidden = false; (bar.firstElementChild as HTMLElement).style.width = p.total ? `${(100 * p.done) / p.total}%` : "5%"; }
     const s = el.querySelector(".ai-stage");
-    if (s) s.textContent = `${p.stage === "engine" ? "Движок llama.cpp" : "Модель Qwen2.5-Coder 1.5B"}: ${(p.done / 1048576).toFixed(0)}${p.total ? ` из ${(p.total / 1048576).toFixed(0)}` : ""} МБ`;
+    if (s) s.textContent = `${p.stage === "engine" ? t("Движок llama.cpp") : `${t("Модель")}: ${t(title)}`} — ${(p.done / 1048576).toFixed(0)}${p.total ? ` / ${(p.total / 1048576).toFixed(0)}` : ""} ${t("МБ")}`;
   });
   listen<{ ok: boolean; error?: string }>("ai-installed", (e) => {
     if (e.payload.ok) toast("Локальный ИИ установлен — в терминале Ctrl+Shift+K или кнопка ✦ ИИ");
@@ -98,7 +142,7 @@ export function mountSettings(root: HTMLElement) {
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
-          <p class="muted hint">Модель Qwen2.5-Coder 1.5B и движок llama.cpp скачиваются отдельно (≈1,1 ГБ) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
+          <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
         </fieldset>
         <fieldset><legend>Заметки</legend>
           <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>

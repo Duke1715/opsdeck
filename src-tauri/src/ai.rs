@@ -1,10 +1,11 @@
-//! Local AI under the hood: llama.cpp's `llama-server` + Qwen2.5-Coder 1.5B, downloaded on demand
+//! Local AI under the hood: llama.cpp's `llama-server` + a model chosen in Settings (Qwen2.5-Coder
+//! 1.5B by default, bigger Qwen models or the user's own .gguf), downloaded on demand
 //! from Settings (nothing is bundled into the installer) into the app's data folder, started in
 //! the background on first use and stopped after a while without requests.
 //! Used to turn a request in plain words into a shell command, with the user's notes as context.
 
-use crate::{process, store::err};
-use serde::Serialize;
+use crate::{process, store, store::err};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -18,11 +19,63 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Pinned llama.cpp build: a known-good one instead of whatever nightly is newest.
 const ENGINE_TAG: &str = "b11351";
-const MODEL_FILE: &str = "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
-const MODEL_URL: &str = "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
-const MODEL_SHA256: &str = "cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046";
-const MODEL_SIZE: u64 = 1_117_320_768;
-/// Stop the server after this long without requests (frees ~1.5 GB of RAM).
+
+/// Models offered in Settings: Q4_K_M quantizations, sha256 pinned (from Hugging Face LFS metadata).
+struct Model {
+    id: &'static str,
+    title: &'static str,
+    file: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    size: u64,
+    /// recommended RAM, GB
+    ram_gb: u32,
+}
+
+const MODELS: &[Model] = &[
+    Model {
+        id: "qwen2.5-coder-1.5b",
+        title: "Лёгкая — Qwen2.5-Coder 1.5B",
+        file: "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        url: "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        sha256: "cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046",
+        size: 1_117_320_768,
+        ram_gb: 4,
+    },
+    Model {
+        id: "qwen3.5-4b",
+        title: "Средняя — Qwen3.5 4B",
+        file: "Qwen3.5-4B-Q4_K_M.gguf",
+        url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+        sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+        size: 2_740_937_888,
+        ram_gb: 8,
+    },
+    Model {
+        id: "qwen3.5-9b",
+        title: "Мощная — Qwen3.5 9B",
+        file: "Qwen3.5-9B-Q4_K_M.gguf",
+        url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
+        sha256: "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+        size: 5_680_522_464,
+        ram_gb: 16,
+    },
+    Model {
+        id: "qwen3.6-35b-a3b",
+        title: "Большая — Qwen3.6 35B-A3B (MoE)",
+        file: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        url: "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        sha256: "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+        size: 22_134_528_992,
+        ram_gb: 32,
+    },
+];
+const CUSTOM: &str = "custom";
+/// The user's choice, in ~/.config/opsdeck.
+const CHOICE_FILE: &str = "ai.json";
+/// Engine archive, roughly (shown in the download size).
+const ENGINE_SIZE: u64 = 40 * 1024 * 1024;
+/// Stop the server after this long without requests (frees the model's RAM).
 const IDLE_STOP: Duration = Duration::from_secs(15 * 60);
 
 fn ai_dir() -> Result<PathBuf, String> {
@@ -67,8 +120,58 @@ fn find_server(dir: &Path) -> Option<PathBuf> {
 fn engine_dir() -> Result<PathBuf, String> {
     Ok(ai_dir()?.join(format!("llama-{ENGINE_TAG}")))
 }
+
+#[derive(Serialize, Deserialize, Default)]
+struct Choice {
+    model: String,
+    custom_path: String,
+}
+
+enum Selected {
+    Preset(&'static Model),
+    Custom(PathBuf),
+}
+
+fn choice() -> Choice {
+    store::load_json(CHOICE_FILE).unwrap_or_default()
+}
+
+fn selected() -> Selected {
+    let c = choice();
+    if c.model == CUSTOM && !c.custom_path.is_empty() {
+        return Selected::Custom(PathBuf::from(c.custom_path));
+    }
+    Selected::Preset(MODELS.iter().find(|m| m.id == c.model).unwrap_or(&MODELS[0]))
+}
+
+fn preset_path(m: &Model) -> Result<PathBuf, String> {
+    Ok(ai_dir()?.join(m.file))
+}
+
+fn preset_ready(m: &Model) -> bool {
+    preset_path(m).ok().and_then(|p| p.metadata().ok()).is_some_and(|md| md.len() == m.size)
+}
+
+/// The model file to run, if it is there.
 fn model_path() -> Result<PathBuf, String> {
-    Ok(ai_dir()?.join(MODEL_FILE))
+    match selected() {
+        Selected::Preset(m) => preset_path(m),
+        Selected::Custom(p) => Ok(p),
+    }
+}
+
+fn model_ready() -> bool {
+    match selected() {
+        Selected::Preset(m) => preset_ready(m),
+        Selected::Custom(p) => p.is_file(),
+    }
+}
+
+fn stop_server(state: &AiState) {
+    if let Some(mut s) = state.server.lock().unwrap().take() {
+        let _ = s.child.kill();
+        let _ = s.child.wait();
+    }
 }
 
 struct Server {
@@ -103,6 +206,8 @@ pub struct AiStatus {
     download_size: u64,
     dir: String,
     supported: bool,
+    /// the selected model, for the UI
+    model_title: String,
 }
 
 fn dir_size(p: &Path) -> u64 {
@@ -117,17 +222,106 @@ fn dir_size(p: &Path) -> u64 {
 pub fn ai_status(state: tauri::State<AiState>) -> Result<AiStatus, String> {
     let dir = ai_dir()?;
     let engine = engine_dir().ok().and_then(|d| find_server(&d)).is_some();
-    let model = model_path()?.metadata().map(|m| m.len() == MODEL_SIZE).unwrap_or(false);
+    let model = model_ready();
+    let (model_title, model_size) = match selected() {
+        Selected::Preset(m) => (m.title.to_string(), if model { 0 } else { m.size }),
+        Selected::Custom(p) => (format!("свой файл: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), 0),
+    };
     Ok(AiStatus {
         engine,
         model,
         running: state.server.lock().unwrap().is_some(),
         installing: state.installing.lock().unwrap().is_some(),
         size: dir_size(&dir),
-        download_size: MODEL_SIZE + 40 * 1024 * 1024,
+        download_size: model_size + if engine { 0 } else { ENGINE_SIZE },
         dir: dir.to_string_lossy().into_owned(),
         supported: engine_asset().is_ok(),
+        model_title,
     })
+}
+
+#[derive(Serialize)]
+pub struct AiModelInfo {
+    id: &'static str,
+    title: &'static str,
+    size: u64,
+    ram_gb: u32,
+    installed: bool,
+}
+
+#[derive(Serialize)]
+pub struct AiModels {
+    models: Vec<AiModelInfo>,
+    selected: String,
+    custom_path: String,
+    /// this machine's RAM, bytes (for the "fits your PC" hint)
+    ram_total: u64,
+}
+
+#[tauri::command]
+pub fn ai_models() -> AiModels {
+    let c = choice();
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    AiModels {
+        models: MODELS.iter().map(|m| AiModelInfo { id: m.id, title: m.title, size: m.size, ram_gb: m.ram_gb, installed: preset_ready(m) }).collect(),
+        selected: match selected() {
+            Selected::Preset(m) => m.id.to_string(),
+            Selected::Custom(_) => CUSTOM.to_string(),
+        },
+        custom_path: c.custom_path,
+        ram_total: sys.total_memory(),
+    }
+}
+
+/// Pick a model (`custom` + a path to a .gguf file). The running server is stopped, so the
+/// next request starts with the new model.
+#[tauri::command]
+pub fn ai_select(state: tauri::State<AiState>, model: String, custom_path: Option<String>) -> Result<(), String> {
+    let mut c = choice();
+    if model == CUSTOM {
+        let p = PathBuf::from(custom_path.unwrap_or_default().trim());
+        if !p.is_file() || p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("gguf")) {
+            return Err("нужен существующий файл модели .gguf".into());
+        }
+        c.custom_path = p.to_string_lossy().into_owned();
+    } else if !MODELS.iter().any(|m| m.id == model) {
+        return Err(format!("нет такой модели: {model}"));
+    }
+    c.model = model;
+    store::save_json(CHOICE_FILE, &c)?;
+    stop_server(&state);
+    Ok(())
+}
+
+/// Native "choose a .gguf file" dialog; None when cancelled.
+#[tauri::command]
+pub async fn ai_pick_model(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Файл модели .gguf")
+            .add_filter("GGUF", &["gguf"])
+            .blocking_pick_file()
+            .and_then(|f| f.into_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Delete one downloaded model (the engine and other models stay).
+#[tauri::command]
+pub fn ai_remove_model(state: tauri::State<AiState>, id: String) -> Result<(), String> {
+    let m = MODELS.iter().find(|m| m.id == id).ok_or("нет такой модели")?;
+    stop_server(&state);
+    let p = preset_path(m)?;
+    if p.exists() {
+        fs::remove_file(&p).map_err(err)?;
+    }
+    Ok(())
 }
 
 fn progress(app: &AppHandle, stage: &str, done: u64, total: u64) {
@@ -239,10 +433,11 @@ pub fn ai_install(app: AppHandle, state: tauri::State<AiState>) -> Result<(), St
                     return Err("в архиве движка не найден llama-server".into());
                 }
             }
-            // 2. model (~1 GB), pinned sha256
-            let model = model_path()?;
-            if model.metadata().map(|m| m.len() != MODEL_SIZE).unwrap_or(true) {
-                download(&app2, MODEL_URL, &model, Some(MODEL_SHA256), "model", &cancel).await?;
+            // 2. the selected model, pinned sha256 (an own .gguf file needs no download)
+            if let Selected::Preset(m) = selected() {
+                if !preset_ready(m) {
+                    download(&app2, m.url, &preset_path(m)?, Some(m.sha256), "model", &cancel).await?;
+                }
             }
             Ok(())
         }
@@ -269,13 +464,10 @@ pub fn ai_cancel(state: tauri::State<AiState>) {
     }
 }
 
-/// Remove the engine and the model (≈1.1 GB).
+/// Remove the engine and all downloaded models.
 #[tauri::command]
 pub fn ai_remove(state: tauri::State<AiState>) -> Result<(), String> {
-    if let Some(mut s) = state.server.lock().unwrap().take() {
-        let _ = s.child.kill();
-        let _ = s.child.wait();
-    }
+    stop_server(&state);
     let dir = ai_dir()?;
     fs::remove_dir_all(&dir).map_err(err)
 }
@@ -300,9 +492,11 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
     }
     let bin = engine_dir().ok().and_then(|d| find_server(&d)).ok_or("локальный ИИ не установлен — ⚙ Настройки → Локальный ИИ")?;
     let model = model_path()?;
-    if !model.exists() {
+    if !model_ready() {
         return Err("модель не скачана — ⚙ Настройки → Локальный ИИ".into());
     }
+    // big models take a while to read from disk: ~15 s per GB on top of the base 90 s
+    let load_limit = Duration::from_secs(90 + model.metadata().map(|m| m.len() / 1_073_741_824 * 15).unwrap_or(0));
     let port = free_port()?;
     let threads = std::thread::available_parallelism().map(|n| n.get().clamp(2, 8)).unwrap_or(4);
     let mut cmd = Command::new(&bin);
@@ -331,11 +525,11 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
             state.server.lock().unwrap().take();
             return Err("llama-server завершился при запуске (не хватает памяти или библиотек?) — подробности: запустите его из терминала".into());
         }
-        if started.elapsed() > Duration::from_secs(90) {
+        if started.elapsed() > load_limit {
             if let Some(mut s) = state.server.lock().unwrap().take() {
                 let _ = s.child.kill();
             }
-            return Err("модель не загрузилась за 90 с".into());
+            return Err(format!("модель не загрузилась за {} с", load_limit.as_secs()));
         }
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
@@ -408,6 +602,8 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
         ],
         "temperature": 0.1,
         "max_tokens": 160,
+        // Qwen3.x think aloud by default: a command is needed, not reasoning
+        "chat_template_kwargs": { "enable_thinking": false },
         "stream": false
     });
     let resp: serde_json::Value = reqwest::Client::new()
@@ -429,6 +625,8 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
 
 /// Models like to wrap the answer in ``` or prefix it with "$ ".
 fn clean_command(raw: &str) -> String {
+    // a reasoning model may still prepend <think>…</think>
+    let raw = raw.rsplit_once("</think>").map(|(_, after)| after).unwrap_or(raw);
     let mut s = raw.trim();
     if let Some(rest) = s.strip_prefix("```") {
         s = rest.split_once('\n').map(|(_, b)| b).unwrap_or(rest);
@@ -448,5 +646,6 @@ mod tests {
     fn clean() {
         assert_eq!(super::clean_command("```bash\n$ kubectl get pods -n prod\n```"), "kubectl get pods -n prod");
         assert_eq!(super::clean_command("`ls -la`"), "ls -la");
+        assert_eq!(super::clean_command("<think>\nсписок подов\n</think>\n\nkubectl get pods -A"), "kubectl get pods -A");
     }
 }
