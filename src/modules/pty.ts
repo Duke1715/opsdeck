@@ -40,6 +40,26 @@ function termFontStack(name = termFontFamily()): string {
   return name ? `"${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}", ${FONT_FALLBACK}` : FONT_FALLBACK;
 }
 
+/** Offered in ⚙ → Терминал; any other installed font can be typed in. */
+export const TERM_FONTS = [
+  "MesloLGS NF", "JetBrainsMono Nerd Font Mono", "FiraCode Nerd Font Mono", "Hack Nerd Font Mono",
+  "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro", "Ubuntu Mono",
+  "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Menlo", "SF Mono", "Monaco", "Consolas", "Courier New",
+];
+
+/**
+ * Whether a font is installed: text in it must differ in width from at least one generic family
+ * (the same font can be the system's monospace fallback, but it cannot match all three).
+ */
+export function fontInstalled(name: string): boolean {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return true;
+  const sample = "mmmmmmmmmmlli1WW@#ЖЩ";
+  const width = (family: string) => { ctx.font = `72px ${family}`; return ctx.measureText(sample).width; };
+  const quoted = `"${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return ["monospace", "serif", "sans-serif"].some((base) => width(`${quoted}, ${base}`) !== width(base));
+}
+
 export function setTermFontFamily(name: string) {
   const value = cleanFontFamily(name);
   try { localStorage.setItem(FONT_FAMILY_KEY, value); } catch { /* ignore */ }

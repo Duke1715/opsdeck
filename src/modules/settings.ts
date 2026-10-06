@@ -5,7 +5,7 @@ import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
-import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily } from "./pty";
+import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
 import { listen } from "@tauri-apps/api/event";
 
@@ -90,12 +90,10 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
           <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
-          <label>Шрифт терминала <input class="term-font-family" list="dl-term-fonts" maxlength="128" placeholder="По умолчанию" spellcheck="false" /></label>
-          <datalist id="dl-term-fonts" data-no-i18n>
-            ${["MesloLGS NF", "JetBrainsMono Nerd Font Mono", "FiraCode Nerd Font Mono", "Hack Nerd Font Mono", "JetBrains Mono", "Fira Code", "Menlo", "Consolas", "DejaVu Sans Mono"].map((name) => `<option value="${name}"></option>`).join("")}
-          </datalist>
-          <div class="row"><button type="button" class="ghost term-font-reset">Шрифт по умолчанию</button></div>
-          <p class="muted hint">Выберите вариант или введите название установленного моноширинного шрифта. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Если шрифт не установлен, используется запасной. Пустое поле — шрифт по умолчанию. Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
+          <label>Шрифт терминала <select class="term-font-family"></select></label>
+          <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
+          <p class="muted hint term-font-warn" hidden></p>
+          <p class="muted hint">Шрифты из списка, которых нет в системе, помечены «не установлен» — их нужно поставить отдельно, иначе используется запасной. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Любой другой установленный шрифт — пункт «Другой…». Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
@@ -161,11 +159,40 @@ export function mountSettings(root: HTMLElement) {
   fontIn.onchange = () => { if (Number(fontIn.value)) setTermFontSize(Number(fontIn.value)); syncFont(); };
   window.addEventListener("term-font", syncFont);
   syncFont();
-  const fontFamilyIn = root.querySelector<HTMLInputElement>(".term-font-family")!;
-  const syncFontFamily = () => { fontFamilyIn.value = termFontFamily(); };
-  fontFamilyIn.onchange = () => { setTermFontFamily(fontFamilyIn.value); syncFontFamily(); };
-  root.querySelector<HTMLButtonElement>(".term-font-reset")!.onclick = () => setTermFontFamily("");
+  const fontSel = root.querySelector<HTMLSelectElement>(".term-font-family")!;
+  const fontCustomRow = root.querySelector<HTMLElement>(".term-font-custom-row")!;
+  const fontCustom = root.querySelector<HTMLInputElement>(".term-font-custom")!;
+  const fontWarn = root.querySelector<HTMLElement>(".term-font-warn")!;
+  const OTHER = "__other__";
+  const fillFonts = () => {
+    fontSel.innerHTML = `<option value="">По умолчанию</option>` +
+      TERM_FONTS.map((f) => `<option value="${esc(f)}">${esc(fontInstalled(f) ? f : `${f} — не установлен`)}</option>`).join("") +
+      `<option value="${OTHER}">Другой…</option>`;
+  };
+  const showWarn = (name: string) => {
+    fontWarn.hidden = !name || fontInstalled(name);
+    fontWarn.textContent = fontWarn.hidden ? "" : `Шрифт «${name}» не найден в системе — терминал использует запасной.`;
+  };
+  const syncFontFamily = () => {
+    const cur = termFontFamily();
+    const known = !cur || TERM_FONTS.includes(cur);
+    fontSel.value = known ? cur : OTHER;
+    fontCustomRow.hidden = known;
+    if (!known) fontCustom.value = cur;
+    showWarn(cur);
+  };
+  fontSel.onchange = () => {
+    if (fontSel.value === OTHER) {
+      fontCustomRow.hidden = false;
+      fontCustom.focus();
+      return;
+    }
+    fontCustomRow.hidden = true;
+    setTermFontFamily(fontSel.value);
+  };
+  fontCustom.onchange = () => setTermFontFamily(fontCustom.value);
   window.addEventListener("term-font-family", syncFontFamily);
+  fillFonts();
   syncFontFamily();
   invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
   root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
