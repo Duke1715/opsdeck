@@ -35,9 +35,11 @@ export type IconName =
   | "sparkles"
   | "user"
   | "eyeOff"
+  | "grid"
 ;
 
 const ICONS: Record<IconName, string> = {
+  grid: "<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\" />",
   terminal: "<path d=\"M12 19h8\" /> <path d=\"m4 17 6-6-6-6\" />",
   k8s: "<circle cx=\"12\" cy=\"12\" r=\"8\" /> <path d=\"M12 2v7.5\" /> <path d=\"m19 5-5.23 5.23\" /> <path d=\"M22 12h-7.5\" /> <path d=\"m19 19-5.23-5.23\" /> <path d=\"M12 14.5V22\" /> <path d=\"M10.23 13.77 5 19\" /> <path d=\"M9.5 12H2\" /> <path d=\"M10.23 10.23 5 5\" /> <circle cx=\"12\" cy=\"12\" r=\"2.5\" />",
   web: "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\" /> <path d=\"M2 12h20\" />",

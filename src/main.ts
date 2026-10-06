@@ -14,7 +14,7 @@ import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
-import { logUi } from "./modules/ui";
+import { esc, logUi, toast } from "./modules/ui";
 import { currentLang, startI18n } from "./i18n";
 
 // anything that blows up in the UI ends up in the log file (⚙ → Журнал)
@@ -52,7 +52,53 @@ const sidebar = document.getElementById("sidebar")!;
 const container = document.getElementById("views")!;
 const panes = new Map<string, HTMLElement>();
 
+// ----- modules: which views are on (⊞ menu in the sidebar); off ones are not even mounted -----
+const MODULES_KEY = "opsdeck.modules";
+const DEFAULT_MODULES = ["terminal", "k8s", "ssh", "vault", "notes"];
+const optional = views.filter((v) => !v.bottom);
+const enabled = new Set<string>(((): string[] => {
+  try {
+    const saved = localStorage.getItem(MODULES_KEY);
+    if (saved) return JSON.parse(saved);
+    // an existing install keeps everything it had; a fresh one starts with the basic set
+    const used = Object.keys(localStorage).some((k) => k.startsWith("opsdeck."));
+    return used ? optional.map((v) => v.id) : DEFAULT_MODULES;
+  } catch { return DEFAULT_MODULES; }
+})());
+const saveModules = () => { try { localStorage.setItem(MODULES_KEY, JSON.stringify([...enabled])); } catch { /* ignore */ } };
+saveModules();
+const isOn = (id: string) => enabled.has(id) || !!views.find((v) => v.id === id)?.bottom;
+const firstOn = () => movable().find((b) => !b.hidden)?.dataset.view ?? "settings";
+
+/** Mount a view on first use. */
+function ensure(id: string) {
+  if (panes.has(id)) return;
+  const v = views.find((x) => x.id === id);
+  if (!v) return;
+  const pane = document.createElement("section");
+  pane.className = "view";
+  pane.hidden = true;
+  container.appendChild(pane);
+  panes.set(id, pane);
+  v.mount(pane);
+}
+
+function setModule(id: string, on: boolean) {
+  if (on) enabled.add(id); else enabled.delete(id);
+  saveModules();
+  const btn = sidebar.querySelector<HTMLElement>(`button[data-view="${id}"]`);
+  if (btn) btn.hidden = !on;
+  if (on) ensure(id);
+  else if (panes.get(id)?.hidden === false) show(firstOn());
+}
+
 function show(id: string) {
+  if (!isOn(id)) {
+    // another module needs it (e.g. SSH opens a terminal tab): switch it on
+    setModule(id, true);
+    toast(`Модуль «${views.find((v) => v.id === id)?.title ?? id}» включён`);
+  }
+  ensure(id);
   for (const [vid, el] of panes) el.hidden = vid !== id;
   sidebar.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.view === id));
   window.dispatchEvent(new CustomEvent("view-shown", { detail: id }));
@@ -64,20 +110,64 @@ for (const v of views) {
   btn.title = v.title;
   btn.innerHTML = v.svg;
   btn.onclick = () => show(v.id);
-  if (v.bottom) btn.classList.add("bottom");
+  btn.hidden = !isOn(v.id);
+  if (v.bottom) {
+    const mods = document.createElement("button");
+    mods.className = "bottom modules-btn";
+    mods.title = "Модули";
+    mods.innerHTML = icon("grid", 20);
+    mods.onclick = (e) => { e.stopPropagation(); toggleModulesMenu(mods); };
+    sidebar.appendChild(mods);
+    btn.classList.add("bottom");
+  }
   sidebar.appendChild(btn);
+  if (isOn(v.id)) ensure(v.id);
+}
 
-  const pane = document.createElement("section");
-  pane.className = "view";
-  pane.hidden = true;
-  container.appendChild(pane);
-  panes.set(v.id, pane);
-  v.mount(pane);
+function toggleModulesMenu(anchor: HTMLElement) {
+  const old = document.querySelector(".modules-pop");
+  if (old) return old.remove();
+  const pop = document.createElement("div");
+  pop.className = "modules-pop";
+  pop.innerHTML = `<div class="modules-head">Модули</div>` +
+    optional.map((v) => `<label class="check"><input type="checkbox" data-mod="${v.id}" ${enabled.has(v.id) ? "checked" : ""} />${v.svg}<span>${esc(v.title)}</span></label>`).join("") +
+    `<p class="muted hint">Выключенный модуль пропадает из меню и не загружается при следующем запуске.</p>`;
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${r.right + 8}px`;
+  pop.style.bottom = `${Math.max(8, window.innerHeight - r.bottom)}px`;
+  document.body.appendChild(pop);
+  pop.addEventListener("change", (e) => {
+    const box = (e.target as HTMLElement).closest<HTMLInputElement>("input[data-mod]");
+    if (box) setModule(box.dataset.mod!, box.checked);
+  });
+  const close = (e: Event) => {
+    if (e instanceof KeyboardEvent ? e.key !== "Escape" : pop.contains(e.target as Node) || anchor.contains(e.target as Node)) return;
+    pop.remove();
+    document.removeEventListener("pointerdown", close, true);
+    document.removeEventListener("keydown", close, true);
+  };
+  document.addEventListener("pointerdown", close, true);
+  document.addEventListener("keydown", close, true);
+}
+
+// events handled inside a module: if it was never mounted, mount it and deliver the event again
+const ROUTED: Record<string, string> = {
+  "open-terminal": "terminal", "send-to-ai": "terminal", "ai-ask": "terminal",
+  "open-in-code": "code", "open-note": "notes", "add-connector": "web", "open-url": "web",
+};
+for (const [type, id] of Object.entries(ROUTED)) {
+  window.addEventListener(type, (e) => {
+    if (panes.has(id)) return;
+    e.stopImmediatePropagation();
+    show(id);
+    const detail = (e as CustomEvent).detail;
+    queueMicrotask(() => window.dispatchEvent(new CustomEvent(type, { detail })));
+  }, true);
 }
 
 // ----- user order of the sidebar icons: drag with the mouse, kept in localStorage -----
 const ORDER_KEY = "opsdeck.sidebar.order";
-const movable = () => [...sidebar.querySelectorAll<HTMLButtonElement>("button[data-view]:not(.bottom)")];
+function movable() { return [...sidebar.querySelectorAll<HTMLButtonElement>("button[data-view]:not(.bottom)")]; }
 const bottomBtn = sidebar.querySelector("button.bottom");
 try {
   const saved: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]");
@@ -140,7 +230,7 @@ setTimeout(() => {
     .catch(() => {});
 }, 8000);
 
-registerProvider(() => views.map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
+registerProvider(() => views.filter((v) => isOn(v.id)).map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));
 
-show("terminal");
+show(isOn("terminal") ? "terminal" : firstOn());

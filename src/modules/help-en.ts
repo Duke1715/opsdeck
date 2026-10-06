@@ -250,6 +250,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Settings",
     html: `
       <ul><li><b>Language</b>: “System” follows the system locale; Russian or English can be chosen explicitly. The interface reloads when it changes.</li>
+      <li><b>Modules</b>: the ⊞ button at the bottom of the left column turns sections on and off with checkboxes. A fresh install starts with Terminal, Kubernetes, SSH, KeePass and Notes. If another section needs one (e.g. SSH opens a terminal tab), it is turned on automatically.</li>
       <li><b>Icon order</b> in the left column is changed by dragging with the mouse and is remembered (⚙ always stays at the bottom).</li>
       <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size and family. Enter the name of an installed monospace font; choose MesloLGS NF or a Nerd Font for Powerlevel10k icons. The choice applies immediately to all terminals and is remembered. An empty field restores the default font.</li>
       <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>

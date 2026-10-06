@@ -969,3 +969,13 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .ssh-group summary.drop-target { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 1px dashed var(--accent); outline-offset: -1px; border-radius: 6px; }
 .ssh-new-group { margin-top: 10px; padding: 12px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
 .ssh-new-group.drop-target { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* ⊞ modules menu */
+#sidebar button.bottom + button.bottom { margin-top: 0; }
+.modules-pop { position: fixed; z-index: 60; width: 260px; padding: 8px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
+.modules-head { padding: 4px 6px 8px; font-weight: 600; }
+.modules-pop label.check { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer; }
+.modules-pop label.check:hover { background: var(--panel-2); }
+.modules-pop label.check svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.modules-pop .hint { margin: 8px 6px 2px; font-size: 12px; }
