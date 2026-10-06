@@ -963,8 +963,9 @@ dialog.task-dialog { width: 520px; }
 .notes-bar > :not(.note-path):not(.spacer) { flex: none; white-space: nowrap; }
 .notes-bar .note-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ssh: drag hosts between groups */
-.ssh-group tr[data-id], .ssh-group tr[data-alias] { cursor: grab; }
+.ssh-group tr[data-id] td.mt-name, .ssh-group tr[data-alias] td.mt-name { cursor: grab; }
 .ssh-group tr.dragging { opacity: .45; }
+body.no-select, body.no-select * { user-select: none; -webkit-user-select: none; }
 .ssh-group summary.drop-target { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 1px dashed var(--accent); outline-offset: -1px; border-radius: 6px; }
 .ssh-new-group { margin-top: 10px; padding: 12px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
 .ssh-new-group.drop-target { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }

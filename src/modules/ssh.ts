@@ -257,6 +257,7 @@ export function mountSsh(root: HTMLElement) {
     const row = t.closest<HTMLElement>("tr[data-id], tr[data-alias]");
     if (!row || e.button !== 0 || t.closest("button, input, a")) return;
     const x0 = e.clientX, y0 = e.clientY;
+    const noSelect = (ev: Event) => ev.preventDefault();
     const from = row.closest<HTMLElement>("details")?.dataset.g ?? "";
     let ghost: HTMLElement | null = null, zone: HTMLElement | null = null, target: string | null = null;
     const mark = (el: Element | null) => {
@@ -265,7 +266,12 @@ export function mountSsh(root: HTMLElement) {
     };
     const move = (ev: PointerEvent) => {
       if (!ghost) {
-        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        // inside the row the mouse selects text as usual; leaving the row picks the host up
+        const r = row.getBoundingClientRect();
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6 || (ev.clientY >= r.top && ev.clientY <= r.bottom)) return;
+        window.getSelection()?.removeAllRanges();
+        document.body.classList.add("no-select");
+        document.addEventListener("selectstart", noSelect);
         ghost = document.createElement("div");
         ghost.className = "drag-ghost";
         ghost.textContent = row.querySelector(".mt-name")?.childNodes[0]?.textContent?.trim() ?? "";
@@ -291,6 +297,9 @@ export function mountSsh(root: HTMLElement) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       if (!ghost) return;
+      document.body.classList.remove("no-select");
+      document.removeEventListener("selectstart", noSelect);
+      window.getSelection()?.removeAllRanges();
       ghost.remove();
       zone?.remove();
       row.classList.remove("dragging");
