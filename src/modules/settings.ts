@@ -227,7 +227,7 @@ export function mountSettings(root: HTMLElement) {
       return;
     }
     fillAiModels(r.models);
-    out.textContent = `сервер отвечает · моделей: ${r.models.length ? r.models.join(", ") : "(список пуст)"}`;
+    out.textContent = `сервер отвечает · модели: ${r.models.length ? r.models.join(", ") : "(список пуст)"}`;
   });
   const fontIn = root.querySelector<HTMLInputElement>(".term-font")!;
   const syncFont = () => { fontIn.value = String(termFontSize()); };
