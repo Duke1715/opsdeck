@@ -6,6 +6,8 @@
 
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, Kubernetes, базы данных, встроенная IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass, SSH и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
 
+🌐 **Сайт с обзором и инструкцией:** https://leoalecksey.github.io/opsdeck/ ([English](https://leoalecksey.github.io/opsdeck/en/))
+
 > *English:* runs on Linux (glibc 2.35+, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11 and macOS 10.13+ (Apple Silicon: 11+). OpsDeck is an open-source desktop cockpit for DevOps engineers — a Warp-style terminal with an AI side panel (Claude Code, Codex, Gemini, Aider, OpenCode), a Lens-like Kubernetes view, embedded Grafana/ArgoCD/GitLab tabs with auto-login, an alert inbox (Grafana, Prometheus Alertmanager, your own AI analyzers), KeePass, SSH/MikroTik launchers and a Markdown notes vault. Built with Rust + Tauri 2. MIT licensed.
 
 Стек: **Rust + [Tauri 2](https://tauri.app)** (бэкенд), TypeScript + Vite (интерфейс), [xterm.js](https://xtermjs.org) (терминал), [kube-rs](https://kube.rs) (Kubernetes).

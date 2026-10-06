@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpsDeck — рабочее место DevOps-инженера в одном окне</title>
+  <meta name="description" content="Бесплатное open-source приложение для DevOps: терминал с локальным ИИ, Kubernetes, SSH, базы данных, IDE с git, алерты, заметки с задачами и KeePass в одном окне. Linux, Windows, macOS.">
+  <meta property="og:title" content="OpsDeck — рабочее место DevOps-инженера в одном окне">
+  <meta property="og:description" content="Терминал с ИИ, Kubernetes, SSH, базы, IDE, алерты, заметки и KeePass — в одном бесплатном приложении.">
+  <meta property="og:image" content="img/ru/terminal.jpg">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="alternate" hreflang="en" href="en/">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.png" alt="">OpsDeck</a>
+    <nav class="nav">
+      <a href="#start">Начать</a>
+      <a class="hide-xs" href="#modules">Модули</a>
+      <a class="hide-sm" href="#features">Возможности</a>
+      <a class="hide-sm" href="#keys">Клавиши</a>
+      <a class="hide-sm" href="#faq">Вопросы</a>
+      <a href="https://github.com/LeoAlecksey/opsdeck">GitHub</a>
+      <a class="lang" href="en/" hreflang="en">EN</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="hero wrap">
+  <div class="badge">Бесплатно · open source · MIT</div>
+  <h1>Рабочее место DevOps-инженера <span>в одном окне</span></h1>
+  <p class="lead">Терминал с локальным ИИ, Kubernetes, SSH, базы данных, IDE с git, алерты, заметки с задачами и KeePass — вместе и знают друг о друге. Включите только те разделы, которые нужны вам.</p>
+  <div class="actions">
+    <a class="btn primary" href="https://github.com/LeoAlecksey/opsdeck/releases/latest">Скачать</a>
+    <a class="btn" href="https://github.com/LeoAlecksey/opsdeck">Исходный код на GitHub</a>
+  </div>
+  <div class="platforms">Linux (.deb, .rpm, AppImage) · Windows (.msi, .exe) · macOS (.dmg, Intel и Apple Silicon)</div>
+  <img class="shot" src="img/ru/terminal.jpg" alt="Терминал OpsDeck с подсветкой вывода kubectl и terraform" width="2160" height="1350">
+</div>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Как начать</h2>
+    <p class="section-lead">Три шага — и можно работать. Всё остальное настраивается по ходу дела.</p>
+    <div class="grid3">
+      <div class="card">
+        <div class="step-n">1</div>
+        <h3>Скачайте установщик</h3>
+        <p>На странице <a href="https://github.com/LeoAlecksey/opsdeck/releases/latest">последнего релиза</a> выберите файл для своей системы:</p>
+        <ul>
+          <li>Ubuntu/Debian — <code>.deb</code>, Fedora — <code>.rpm</code>, любой Linux — <code>.AppImage</code></li>
+          <li>Windows 10/11 — <code>.msi</code> или <code>.exe</code></li>
+          <li>macOS — <code>.dmg</code> (<code>aarch64</code> для M1–M4, <code>x64</code> для Intel)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="step-n">2</div>
+        <h3>Установите и запустите</h3>
+        <p>Обычная установка для вашей системы. Дальше OpsDeck обновляется сам: при выходе новой версии на ⚙ появится ↑.</p>
+        <p class="muted"><b>macOS:</b> сборки не подписаны сертификатом Apple. Если macOS пишет «приложение повреждено», перетащите OpsDeck в «Программы» и выполните в Терминале <code>xattr -cr /Applications/OpsDeck.app</code>.</p>
+      </div>
+      <div class="card">
+        <div class="step-n">3</div>
+        <h3>Включите нужные модули</h3>
+        <p>Сначала открыты пять разделов: Терминал, Kubernetes, SSH, KeePass и Заметки. Кнопка <b>⊞</b> внизу левой колонки добавит остальные.</p>
+        <p>Пути к KeePass и папке заметок OpsDeck найдёт сам, если они лежат в домашней папке. Проверить — в <b>⚙ Настройки</b>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="modules">
+  <div class="wrap">
+    <div class="feature flip">
+      <div class="text">
+        <h2>Модули: только то, что нужно</h2>
+        <p class="section-lead" style="margin-bottom:16px">Кнопка ⊞ внизу левой колонки открывает список разделов с галочками. Выключенный раздел исчезает из меню и не загружается при запуске.</p>
+        <ul>
+          <li>Порядок иконок меняется перетаскиванием мышью.</li>
+          <li>Если раздел нужен другому, он включится сам: например, SSH откроет вкладку терминала, даже если терминал был выключен.</li>
+          <li>Тем, кто обновился со старой версии, включены все разделы — ничего не пропадёт.</li>
+        </ul>
+      </div>
+      <img class="shot" src="img/ru/modules.jpg" alt="Меню модулей с галочками" loading="lazy" width="2160" height="1350">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Модуль</th><th>Для чего</th><th>В новой установке</th></tr></thead>
+        <tbody>
+          <tr><td>Терминал + AI</td><td>Вкладки и сплиты с bash/zsh/PowerShell, локальный ИИ, AI-панель с Claude Code, Codex, Gemini, Aider, OpenCode</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>Kubernetes</td><td>Кластеры, поды, логи, YAML, shell, port-forward, Helm, Argo CD</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>SSH</td><td>Свои профили и хосты из <code>~/.ssh/config</code>, группы, jump-хосты</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>KeePass</td><td>Пароли из базы .kdbx для всех разделов</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>Заметки</td><td>Markdown-хранилища, совместимые с Obsidian, теги, задачи</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>Grafana · ArgoCD · GitLab</td><td>Веб-панели вкладками с автовходом</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Алерты</td><td>Grafana Alerting, Alertmanager и ваши анализаторы логов</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Сеть и DNS</td><td>ping, mtr, traceroute, dig, скан портов</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>IDE: код и git</td><td>Редактор с подсветкой, проверка YAML/Terraform, граф коммитов, ветки</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Базы данных</td><td>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Задачи и напоминания</td><td>Задачи из заметок по срокам, календарь, уведомления</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>MikroTik / WinBox</td><td>WinBox и SSH к роутерам в один клик</td><td><span class="tag">галочкой</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Что умеет каждый раздел</h2>
+    <p class="section-lead">В каждом разделе есть кнопка <b>!</b> в правом верхнем углу — там подробная справка прямо в приложении. Ниже — коротко, как пользоваться.</p>
+
+    <div class="feature" id="terminal">
+      <div class="text">
+        <h3>Терминал</h3>
+        <p>Настоящий bash, zsh или PowerShell, но каждая команда становится блоком с кодом выхода и временем.</p>
+        <ul>
+          <li><kbd>Ctrl+Shift+T</kbd> — новая вкладка, <kbd>Ctrl+Shift+D</kbd> / <kbd>Ctrl+Shift+E</kbd> — разделить вправо / вниз.</li>
+          <li>Пока набираете, серым подсказывается продолжение из истории и заметок: <kbd>→</kbd> — принять.</li>
+          <li>Наведите на команду — скопировать её или вывод, сохранить сниппетом, отправить в AI. Упала команда — внизу плашка «спросить AI».</li>
+          <li><kbd>Ctrl</kbd>+клик по пути вида <code>src/main.rs:42</code> открывает файл на нужной строке.</li>
+          <li>⏺ записывает сессию в текстовый файл, строка внизу показывает CPU, RAM и диск — этой машины или удалённой в SSH.</li>
+        </ul>
+        <div class="where"><b>Где настроить:</b> ⚙ → Терминал — подсветка, подсказки, размер и шрифт (есть MesloLGS NF и Nerd Fonts для Powerlevel10k).</div>
+      </div>
+      <img class="shot" src="img/ru/terminal.jpg" alt="Терминал с блоками команд" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="ai">
+      <div class="text">
+        <h3>Локальный ИИ</h3>
+        <p><kbd>Ctrl+Shift+K</kbd> в терминале: опишите словами, что сделать, и получите готовую команду. В запрос подкладываются похожие команды из ваших заметок и истории — поэтому ИИ берёт ваши неймспейсы и флаги, а не выдумывает свои.</p>
+        <ul>
+          <li><b>Вставить</b> (<kbd>Enter</kbd>) кладёт команду в строку без запуска, <b>Выполнить</b> (<kbd>Ctrl+Enter</kbd>) — сразу.</li>
+          <li>Модель работает только на вашем компьютере, запросы никуда не уходят.</li>
+          <li>Нужен ИИ посерьёзнее — <b>AI ▸</b> справа открывает панель с Claude Code, Codex, Gemini, Aider или OpenCode.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> ⚙ → Локальный ИИ → выберите модель → «Установить». Модели: лёгкая Qwen2.5-Coder 1.5B (≈1,1 ГБ), Qwen3.5 4B и 9B, Qwen3.6 35B-A3B или свой файл <code>.gguf</code>. Там же «Ускорение: Видеокарта (Vulkan)» — если видеокарты нет, ИИ сам перейдёт на процессор. Уже есть Ollama, vLLM или LM Studio — укажите её в блоке «Внешний ИИ-сервер».</div>
+      </div>
+      <img class="shot" src="img/ru/ai.jpg" alt="Локальный ИИ предлагает команду по описанию" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="settings-ai">
+      <div class="text">
+        <h3>Настройка ИИ</h3>
+        <ul>
+          <li>★ в списке моделей отмечает самую крупную, которая подходит по памяти вашего компьютера.</li>
+          <li>Модели скачиваются с проверкой контрольной суммы и удаляются по одной.</li>
+          <li>Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</li>
+          <li>Для внешнего сервера API-ключ хранится в системном хранилище паролей. OpsDeck предупредит, если запросы уходят с компьютера или идут без шифрования.</li>
+        </ul>
+      </div>
+      <img class="shot" src="img/ru/settings-ai.jpg" alt="Настройки локального ИИ: модель, ускорение, внешний сервер" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="k8s">
+      <div class="text">
+        <h3>Kubernetes</h3>
+        <p>Живые таблицы ресурсов в духе Lens: обновляются сами, с CPU и RAM из metrics-server.</p>
+        <ul>
+          <li><b>＋</b> слева вверху — добавить кластер: отметить контексты из <code>~/.kube/config</code>, вставить YAML или перетащить файл в окно. Ваш <code>~/.kube/config</code> не меняется.</li>
+          <li>Клик по строке — панель снизу: логи (у деплоймента со всех подов сразу), детали со ссылками, YAML с применением.</li>
+          <li>Shell, port-forward, scale, restart, Helm rollback, Argo CD sync — кнопками справа.</li>
+          <li>🔒 у контекста — режим «только чтение»: изменения блокируются на стороне приложения, случайный клик ничего не сломает.</li>
+        </ul>
+        <div class="where"><b>Где настроить:</b> ⚙ → Kubernetes — показывать ли контексты из общего <code>~/.kube/config</code>. ⎈ Терминал в разделе открывает shell с kubectl, helm и k9s в выбранном контексте.</div>
+      </div>
+      <img class="shot" src="img/ru/k8s.jpg" alt="Список подов с CPU и RAM" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="alerts">
+      <div class="text">
+        <h3>Алерты</h3>
+        <p>OpsDeck сам опрашивает источники — на компьютер ничего не нужно пробрасывать, IP и NAT не важны.</p>
+        <ul>
+          <li>Источники: Grafana Alerting, Prometheus Alertmanager и JSON-ленты ваших анализаторов логов.</li>
+          <li>Одинаковые алерты собираются в одну карточку со счётчиком, разделы по давности.</li>
+          <li>Кнопки карточки: дашборд и правило во встроенной вкладке Grafana, <b>→ AI</b> — разбор алерта, <b>✓ Просмотрен</b>, <b>🔕 Скрыть такие</b>.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> модуль «Алерты» в ⊞. Источник добавляется в разделе Grafana · ArgoCD · GitLab: ＋ Добавить → тип Grafana, Alertmanager или AI-анализатор → «Сохранить и проверить». Для Grafana достаточно токена service account с ролью Viewer. Частота опроса — ⚙ в разделе алертов.</div>
+      </div>
+      <img class="shot" src="img/ru/alerts.jpg" alt="Карточки алертов с действиями" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="ssh">
+      <div class="text">
+        <h3>SSH</h3>
+        <ul>
+          <li>«Подключиться» открывает вкладку терминала. Хосты из <code>~/.ssh/config</code> работают со всеми своими настройками, включая ProxyJump.</li>
+          <li><b>＋ Хост</b> — свой профиль: адрес, порт, пользователь, ключ, jump-хост, пароль из KeePass или keyring.</li>
+          <li>Хосты раскладываются по группам перетаскиванием мышью — на заголовок группы или в «＋ Новая группа».</li>
+          <li>Пароль кладётся в буфер на 30 секунд — вставьте <kbd>Ctrl+Shift+V</kbd>, когда ssh спросит.</li>
+        </ul>
+      </div>
+      <img class="shot" src="img/ru/ssh.jpg" alt="SSH-хосты по группам" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="code">
+      <div class="text">
+        <h3>IDE: код и git</h3>
+        <ul>
+          <li>📂 — открыть папку проекта, дерево слева показывает изменения git цветом.</li>
+          <li>Подсветка для Terraform, YAML, JSON, Go, Python, Rust, SQL, Dockerfile и других. Ошибки YAML и Terraform подчёркиваются сразу, <code>.tf</code> при сохранении форматируется как <code>terraform fmt</code>.</li>
+          <li><b>⎇ git</b> внизу справа — изменения, коммит, граф всех веток, переключение и создание веток, fetch/pull/push.</li>
+          <li><b>▭ консоль</b> (<kbd>Ctrl+`</kbd>) — терминал прямо в папке проекта.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> модуль «IDE: код и git» в ⊞. Чтобы файлы из терминала открывались здесь, выберите «OpsDeck IDE» в панели 📁 Файлы терминала.</div>
+      </div>
+      <img class="shot" src="img/ru/code.jpg" alt="Редактор Terraform и панель git" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="db">
+      <div class="text">
+        <h3>Базы данных</h3>
+        <ul>
+          <li>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis и MongoDB. <b>＋</b> — новое подключение, «Сохранить и проверить» сразу покажет версию сервера или ошибку.</li>
+          <li>Слева структура базы, двойной клик по таблице — первые строки. <kbd>Ctrl+Enter</kbd> — выполнить запрос.</li>
+          <li>Результат копируется в CSV или JSON, история хранит последние 50 запросов.</li>
+          <li>Галочка «только чтение» для прод-баз: PostgreSQL и ClickHouse запрещают запись на стороне сервера.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> модуль «Базы данных» в ⊞. Пароль — в системном keyring или из записи KeePass.</div>
+      </div>
+      <img class="shot" src="img/ru/db.jpg" alt="Структура базы и результат запроса" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="notes">
+      <div class="text">
+        <h3>Заметки</h3>
+        <ul>
+          <li>Обычные <code>.md</code>-файлы в папке, совместимые с Obsidian. Хранилищ может быть несколько: переключение — кнопкой с названием вверху слева.</li>
+          <li>Теги — кнопкой «＋ тег» с подсказками, заметки и папки перетаскиваются мышью, удалённое уходит в корзину хранилища.</li>
+          <li>Команды из блоков кода в заметках подсказываются в терминале и помогают локальному ИИ.</li>
+          <li><b>＋ Задача</b> вставляет задачу в формате Obsidian Tasks: срок, время напоминания, приоритет, теги.</li>
+        </ul>
+        <div class="where"><b>Где настроить:</b> ⚙ → Заметки — папка хранилища. Создать новое хранилище или открыть папку — в меню с названием хранилища.</div>
+      </div>
+      <img class="shot" src="img/ru/notes.jpg" alt="Заметка-ранбук с командами и задачами" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="tasks">
+      <div class="text">
+        <h3>Задачи и напоминания</h3>
+        <ul>
+          <li>Все задачи из заметок по срокам: просрочено, сегодня, завтра, на неделе. Галочка — выполнено.</li>
+          <li>В назначенное время всплывает уведомление: «Готово», «Отложить», «Открыть заметку». По утрам — сводка на день.</li>
+          <li>📅 Календарь — задачи на каждый день месяца.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> модуль «Задачи и напоминания» в ⊞. Напоминания работают, пока OpsDeck запущен.</div>
+      </div>
+      <img class="shot" src="img/ru/tasks.jpg" alt="Задачи по срокам" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="vault">
+      <div class="text">
+        <h3>KeePass</h3>
+        <ul>
+          <li>База <code>.kdbx</code> открывается только на чтение, расшифрованная живёт лишь в памяти.</li>
+          <li>Пароль вводится один раз — база остаётся открытой до закрытия OpsDeck и сама подтягивает изменения, сделанные в KeePassXC.</li>
+          <li>👤 / 🔑 — скопировать логин / пароль, буфер очищается через 30 секунд.</li>
+          <li>Записи привязываются к веб-панелям, SSH, базам и роутерам — пароли подставляются сами.</li>
+        </ul>
+        <div class="where"><b>Где настроить:</b> ⚙ → KeePass — путь к базе, ключевой файл и автоблокировка вместо «держать открытой».</div>
+      </div>
+      <img class="shot" src="img/ru/vault.jpg" alt="Записи KeePass" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="card">
+        <h3>Grafana · ArgoCD · GitLab</h3>
+        <p>Веб-интерфейсы открываются вкладками прямо в окне, логин и пароль подставляются из keyring или KeePass. Масштаб подгоняется под ширину экрана. <b>＋ Добавить</b> → тип, URL, способ входа.</p>
+      </div>
+      <div class="card">
+        <h3>Сеть и DNS · MikroTik</h3>
+        <p>ping, mtr, traceroute, dig, nslookup и скан портов с баннерами сервисов. Для MikroTik — WinBox и SSH в один клик с паролем из KeePass; путь к WinBox — в ⚙.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="keys">
+  <div class="wrap">
+    <h2>Горячие клавиши</h2>
+    <p class="section-lead">Все сочетания с <kbd>Ctrl+Shift</kbd> работают и на русской раскладке.</p>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td><kbd>Ctrl+Shift+P</kbd></td><td>Палитра команд: поиск по кластерам, хостам, заметкам, паролям, сниппетам и истории</td></tr>
+          <tr><td><kbd>Ctrl+Shift+K</kbd></td><td>Локальный ИИ: команда по описанию словами</td></tr>
+          <tr><td><kbd>Ctrl+Shift+T</kbd> / <kbd>Ctrl+Shift+W</kbd></td><td>Новая вкладка / закрыть панель или вкладку</td></tr>
+          <tr><td><kbd>Ctrl+Shift+D</kbd> / <kbd>Ctrl+Shift+E</kbd></td><td>Разделить терминал вправо / вниз</td></tr>
+          <tr><td><kbd>Ctrl+Shift+↑/↓</kbd></td><td>К предыдущей / следующей команде в выводе</td></tr>
+          <tr><td><kbd>Ctrl+Shift+A</kbd> / <kbd>Ctrl+Shift+I</kbd></td><td>Выделенное — в AI / показать AI-панель</td></tr>
+          <tr><td><kbd>Ctrl+Shift+B</kbd></td><td>Панель файлов текущей папки</td></tr>
+          <tr><td><kbd>Ctrl+=</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Размер шрифта терминала</td></tr>
+          <tr><td><kbd>→</kbd> / <kbd>Ctrl+→</kbd></td><td>Принять подсказку целиком / одно слово</td></tr>
+          <tr><td><kbd>Ctrl+S</kbd>, <kbd>Ctrl+E</kbd></td><td>Сохранить; в заметках — переключить редактор и просмотр</td></tr>
+          <tr><td><kbd>Ctrl+Enter</kbd></td><td>Выполнить запрос к базе; в git — закоммитить</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>Вопросы</h2>
+    <details>
+      <summary>Это бесплатно? Куда уходят мои данные?</summary>
+      <p>Бесплатно, код открыт под лицензией MIT. Настройки хранятся в <code>~/.config/opsdeck/</code>, пароли — в системном хранилище паролей (keyring), база KeePass открывается только на чтение. Встроенный ИИ работает на вашем компьютере. Данные уходят наружу, только если вы сами подключили внешний ИИ-сервер (OpsDeck об этом предупредит) или запустили облачный инструмент в AI-панели — например, Claude Code.</p>
+    </details>
+    <details>
+      <summary>На каких системах работает?</summary>
+      <p>Linux с glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11, macOS 10.13+ на Intel и 11+ на Apple Silicon.</p>
+    </details>
+    <details>
+      <summary>Как обновляться? А если новая версия сломалась?</summary>
+      <p>OpsDeck сам проверяет GitHub Releases: на ⚙ появится ↑, кнопка «Обновить и перезапустить» скачает обновление и проверит его подпись. Если новая версия чем-то мешает, в ⚙ → Обновления → «Другие версии» можно вернуться на любую прошлую.</p>
+    </details>
+    <details>
+      <summary>macOS пишет, что приложение повреждено</summary>
+      <p>Оно не повреждено — так macOS помечает скачанные программы без платной подписи Apple. Перетащите OpsDeck в «Программы» и выполните <code>xattr -cr /Applications/OpsDeck.app</code>. Если появится «не удалось проверить разработчика» — «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть».</p>
+    </details>
+    <details>
+      <summary>Локальный ИИ медленный</summary>
+      <p>Крупные модели на процессоре думают несколько секунд. Включите ⚙ → Локальный ИИ → Ускорение → «Видеокарта (Vulkan)» или выберите модель поменьше. Подойдёт и встроенная графика Intel или AMD.</p>
+    </details>
+    <details>
+      <summary>Как предложить идею или поучаствовать?</summary>
+      <p>Пишите в <a href="https://github.com/LeoAlecksey/opsdeck/issues">issues</a>. Pull request'ы принимаются в ветку <code>dev</code> — подробности в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
+    </details>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap cols">
+    <div>
+      <div class="brand" style="margin-bottom:8px"><img src="assets/icon.png" alt="">OpsDeck</div>
+      <div>Rust + Tauri 2 · MIT · <a href="https://github.com/LeoAlecksey/opsdeck">GitHub</a></div>
+    </div>
+    <div>
+      <div>Автор: <a href="https://github.com/LeoAlecksey">LeoAlecksey</a> · <a href="https://t.me/sys_admin_expert">канал в Telegram</a></div>
+      <div>Спасибо контрибьюторам: <a href="https://github.com/UnQuaiz">UnQuaiz</a>, <a href="https://github.com/Duke1715">Duke1715</a>, <a href="https://github.com/artp1ay">artp1ay</a>, <a href="https://github.com/Ranger-X">Ranger-X</a></div>
+      <div class="muted">Нравится проект? <a href="https://yoomoney.ru/to/4100119645604976">Поддержать</a> или поставить ⭐ на GitHub.</div>
+    </div>
+  </div>
+</footer>
+<script src="assets/app.js"></script>
+</body>
+</html>
